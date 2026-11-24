@@ -749,6 +749,10 @@ export const PROCESSOR_PORT_BOUNDS: SettingsNumericBound = { min: 1, max: 65535 
 // lead while the processed return is on air. Ten seconds is far past any real
 // processor; radio.liq re-checks the same ceiling.
 export const PROCESSOR_DELAY_MS_BOUNDS: SettingsNumericBound = { min: 0, max: 10000 };
+// How long the processed return may be missing or silent before the dry mix
+// airs. 0 is the instant cut. The upper bound keeps radio.liq's dry-level
+// history (delay + hold + 1 s) inside what it keeps.
+export const PROCESSOR_FAILOVER_MS_BOUNDS: SettingsNumericBound = { min: 0, max: 10000 };
 // A hostname, an IPv4 address or a bare IPv6 address, or empty (not set). It
 // reaches radio.liq as a one-line file, so nothing else is allowed in it.
 export const PROCESSOR_HOST_RE = /^[A-Za-z0-9._:-]{0,253}$/;
@@ -774,6 +778,10 @@ export const processorPatchSchema = settingsBlockOf({
   delayMs: settingsIntLike(
     PROCESSOR_DELAY_MS_BOUNDS,
     `processor.delayMs must be int in [${PROCESSOR_DELAY_MS_BOUNDS.min}, ${PROCESSOR_DELAY_MS_BOUNDS.max}]`,
+  ),
+  failoverMs: settingsIntLike(
+    PROCESSOR_FAILOVER_MS_BOUNDS,
+    `processor.failoverMs must be int in [${PROCESSOR_FAILOVER_MS_BOUNDS.min}, ${PROCESSOR_FAILOVER_MS_BOUNDS.max}]`,
   ),
 });
 

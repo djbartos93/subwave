@@ -240,6 +240,7 @@ processor_host = ref("")
 processor_send_port = ref(9000)
 processor_return_port = ref(9001)
 processor_delay_ms = ref(0)
+processor_failover_ms = ref(2000)
 
 if file.exists("#{state_dir}/liquidsoap_processor_enabled.txt") then
   raw = string.trim(file.contents("#{state_dir}/liquidsoap_processor_enabled.txt"))
@@ -268,12 +269,18 @@ if file.exists("#{state_dir}/liquidsoap_processor_delay_ms.txt") then
   if v >= 0 and v <= 10000 then processor_delay_ms := v end
 end
 
+if file.exists("#{state_dir}/liquidsoap_processor_failover_ms.txt") then
+  raw = string.trim(file.contents("#{state_dir}/liquidsoap_processor_failover_ms.txt"))
+  v = int_of_string(default=2000, raw)
+  if v >= 0 and v <= 10000 then processor_failover_ms := v end
+end
+
 processor_active =
   processor_enabled() and processor_host() != ""
   and processor_send_port() != processor_return_port()
 
 log("settings loaded: jingle_ratio=#{jingle_ratio()} crossfade_duration=#{crossfade_duration()} duck_voice=#{duck_voice()} duck_intro=#{duck_intro()} archive_enabled=#{archive_enabled()} archive_bitrate=#{archive_bitrate()} stream_bitrate=#{stream_bitrate()} opus_enabled=#{opus_enabled()} opus_bitrate=#{opus_bitrate()} flac_enabled=#{flac_enabled()} aac_enabled=#{aac_enabled()} aac_bitrate=#{aac_bitrate()} opus_icy_metadata=#{ogg_icy_metadata()} flac_metadata=native station_name=#{station_name()}")
-log("settings loaded: processor_enabled=#{processor_enabled()} processor_host=#{processor_host()} processor_send_port=#{processor_send_port()} processor_return_port=#{processor_return_port()} processor_delay_ms=#{processor_delay_ms()} processor_active=#{processor_active}")
+log("settings loaded: processor_enabled=#{processor_enabled()} processor_host=#{processor_host()} processor_send_port=#{processor_send_port()} processor_return_port=#{processor_return_port()} processor_delay_ms=#{processor_delay_ms()} processor_failover_ms=#{processor_failover_ms()} processor_active=#{processor_active}")
 
 # subhttp:<full-url> — whole-file download via curl (http.get.stream returns
 # spurious 522s on the Cloudflare-fronted Navidrome origin).
@@ -2468,10 +2475,14 @@ end)
 #    puts it back on the mixer's clock and resamples by a hair to track the drift
 #    between the bridge's sound device and this host, which a plain buffer would
 #    turn into a periodic underrun or overflow.
-#  * The station keeps making sound: the fallback airs the dry mix whenever the
-#    return is not ready (bridge down, network gone, processor stopped). The
-#    switch is a hard cut both ways, measured gapless: going dry skips ahead by
-#    the processing delay, going back repeats it once. No transition function
+#  * The station keeps making sound: the fallback airs the dry mix once the
+#    return has been missing (bridge down, network gone, processor stopped) for
+#    processor.failoverMs. A shorter dropout airs as a gap on the processed side
+#    and the return carries on, because every switch is audible: it is a hard
+#    cut both ways, measured gapless, but going dry skips ahead by the
+#    processing delay and going back repeats it once. 0 is the instant cut, at
+#    frame level. The way back waits for 2 s of audible return, so a return
+#    that sputters does not flap the air. No transition function
 #    here, because fade.in/fade.out act per track and would keep re-fading the
 #    dry chain's track marks after the switch.
 #  * The send output follows the on-air lifecycle (stream_up/stream_down), so an
@@ -2490,7 +2501,7 @@ processor_on_air = ref(false)
 processor_reason = ref("")
 processor_since = ref(time())
 processor_marker_at = ref(0.)
-processor_return_silent = ref(false)
+processor_use_return = ref(false)
 processor_output_start = ref(fun () -> ())
 processor_output_stop = ref(fun () -> ())
 
@@ -2528,18 +2539,23 @@ end
 #    that is a little off cannot pair a dry gap with a wet one. Every dry sample
 #    in that window must be audible: one quiet one (a song's own gap) and the
 #    return's silence is the programme's.
-#  * It fires after 1 s of silent return (two samples), so dead air lasts that
-#    plus the return's own lag, about 3.5 s measured; the dry comparison is what
-#    keeps so short a window from tripping. A wider one only lengthens the dead
-#    air: 2 s measured 5 s.
-#  * It clears after 2 s of audible return, so a processor that sputters back
-#    does not flap the air.
+#  * It fires after processor.failoverMs of silent return, never under 1 s (two
+#    samples), so dead air lasts that plus the return's own lag. The dry
+#    comparison is what lets the window be short; a long one only lengthens the
+#    dead air.
+#  * A missing return (not ARRIVING) waits the same processor.failoverMs. Both
+#    clocks restart on any audible, arriving tick, so a hold only fires on one
+#    unbroken dropout.
 processor_silent_db = -60.
 processor_audible_db = -45.
 processor_tick_s = 0.5
-processor_silent_after_s = 1.
+processor_failover_s = float_of_int(processor_failover_ms()) / 1000.
+processor_silent_after_s = max(1., processor_failover_s)
 processor_clear_after_s = 2.
+# Long enough for the widest window: (10 s delay + 10 s hold + 1 s) / 0.5 s.
+processor_dry_history_len = 48
 processor_dry_history = ref([])
+processor_wet_missing_for = ref(0.)
 processor_wet_silent_for = ref(0.)
 processor_wet_audible_for = ref(0.)
 
@@ -2610,35 +2626,56 @@ radio =
     # Keeps the return pulled, so measured, while the dry mix airs: without it a
     # silent verdict could never see the processor come back.
     output.dummy(id="processor_return_meter", fallible=true, processed_level)
-    processed_gated = source.available(processed_level, {not processor_return_silent()})
+    # With a hold, a dropout airs as a gap on the processed side until the tick
+    # decides: the blank keeps the fallback from cutting to the dry mix at the
+    # first empty frame. With none, the cut is the return's own readiness.
+    processed_side =
+      if processor_failover_s > 0. then
+        fallback(id="processor_hold", track_sensitive=false, [processed_level, blank(id="processor_gap")])
+      else
+        processed_level
+      end
+    processed_gated = source.available(processed_side, {processor_use_return()})
     thread.run(every=processor_tick_s, fun () -> begin
       try
         arriving = source.is_ready(processed)
         dry_audible = dB_of_lin(dry.rms()) > processor_audible_db
-        processor_dry_history := list.prefix(64, [dry_audible, ...processor_dry_history()])
+        processor_dry_history := list.prefix(processor_dry_history_len, [dry_audible, ...processor_dry_history()])
+        wet_silent = arriving and dB_of_lin(processed_level.rms()) < processor_silent_db
         if not arriving then
+          processor_wet_missing_for := processor_wet_missing_for() + processor_tick_s
           processor_wet_silent_for := 0.
           processor_wet_audible_for := 0.
-        elsif dB_of_lin(processed_level.rms()) < processor_silent_db then
+        elsif wet_silent then
           processor_wet_silent_for := processor_wet_silent_for() + processor_tick_s
+          processor_wet_missing_for := 0.
           processor_wet_audible_for := 0.
         else
           processor_wet_audible_for := processor_wet_audible_for() + processor_tick_s
+          processor_wet_missing_for := 0.
           processor_wet_silent_for := 0.
         end
-        if
-          not processor_return_silent()
-          and processor_wet_silent_for() >= processor_silent_after_s
-          and processor_dry_audible_when_return_was()
-        then
-          processor_return_silent := true
-        elsif
-          processor_return_silent() and processor_wet_audible_for() >= processor_clear_after_s
-        then
-          processor_return_silent := false
+        if processor_use_return() then
+          if not arriving and processor_wet_missing_for() >= processor_failover_s then
+            processor_use_return := false
+          elsif
+            processor_wet_silent_for() >= processor_silent_after_s
+            and processor_dry_audible_when_return_was()
+          then
+            processor_use_return := false
+          end
+        elsif processor_wet_audible_for() >= processor_clear_after_s then
+          processor_use_return := true
         end
-        now_on = arriving and not processor_return_silent()
-        reason = if now_on then "" elsif not arriving then "lost" else "silent" end
+        # With no hold the fallback cuts at the first empty frame, before this
+        # tick, so the readiness check keeps the report honest.
+        now_on = processor_use_return() and (arriving or processor_failover_s > 0.)
+        reason =
+          if now_on then ""
+          elsif not arriving then "lost"
+          elsif wet_silent then "silent"
+          else processor_reason()
+          end
         if now_on != processor_on_air() or reason != processor_reason() then
           processor_on_air := now_on
           processor_reason := reason
@@ -2646,9 +2683,9 @@ radio =
           if now_on then
             log(label="processor", "processed return on air")
           elsif reason == "lost" then
-            log(label="processor", "processed return lost: airing the dry mix")
-          else
-            log(label="processor", "processed return silent while the dry mix is not: airing the dry mix")
+            log(label="processor", "processed return lost for #{processor_wet_missing_for()} s: airing the dry mix")
+          elsif reason == "silent" then
+            log(label="processor", "processed return silent for #{processor_wet_silent_for()} s while the dry mix is not: airing the dry mix")
           end
           write_processor_marker()
         elsif time() - processor_marker_at() >= 15. then
@@ -2658,7 +2695,7 @@ radio =
         log(label="processor", "status tick failed (#{err})")
       end
     end)
-    log(label="processor", "external processor stage built: send #{processor_host()}:#{processor_send_port()}, return #{processor_host()}:#{processor_return_port()}, delay #{processor_delay_ms()} ms")
+    log(label="processor", "external processor stage built: send #{processor_host()}:#{processor_send_port()}, return #{processor_host()}:#{processor_return_port()}, delay #{processor_delay_ms()} ms, failover #{processor_failover_ms()} ms")
     fallback(id="processor_fallback", track_sensitive=false, [processed_gated, dry])
   else
     radio

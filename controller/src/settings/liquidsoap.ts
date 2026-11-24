@@ -28,6 +28,7 @@ export const LIQ_PROCESSOR_HOST_PATH = `${STATE_DIR}/liquidsoap_processor_host.t
 export const LIQ_PROCESSOR_SEND_PORT_PATH = `${STATE_DIR}/liquidsoap_processor_send_port.txt`;
 export const LIQ_PROCESSOR_RETURN_PORT_PATH = `${STATE_DIR}/liquidsoap_processor_return_port.txt`;
 export const LIQ_PROCESSOR_DELAY_MS_PATH = `${STATE_DIR}/liquidsoap_processor_delay_ms.txt`;
+export const LIQ_PROCESSOR_FAILOVER_MS_PATH = `${STATE_DIR}/liquidsoap_processor_failover_ms.txt`;
 export const LIQ_ARCHIVE_ENABLED_PATH = `${STATE_DIR}/liquidsoap_archive_enabled.txt`;
 export const LIQ_ARCHIVE_BITRATE_PATH = `${STATE_DIR}/liquidsoap_archive_bitrate.txt`;
 export const LIQ_OPUS_ENABLED_PATH = `${STATE_DIR}/liquidsoap_opus_enabled.txt`;
@@ -111,6 +112,7 @@ export async function writeLiquidsoapSettings(s) {
   await writeFile(LIQ_PROCESSOR_SEND_PORT_PATH, String(proc.sendPort ?? DEFAULTS.processor.sendPort));
   await writeFile(LIQ_PROCESSOR_RETURN_PORT_PATH, String(proc.returnPort ?? DEFAULTS.processor.returnPort));
   await writeFile(LIQ_PROCESSOR_DELAY_MS_PATH, String(proc.delayMs ?? DEFAULTS.processor.delayMs));
+  await writeFile(LIQ_PROCESSOR_FAILOVER_MS_PATH, String(proc.failoverMs ?? DEFAULTS.processor.failoverMs));
   await writeFile(LIQ_ARCHIVE_ENABLED_PATH, s.archive.enabled ? 'true' : 'false');
   await writeFile(LIQ_ARCHIVE_BITRATE_PATH, String(s.archive.bitrate));
   // The listener-facing mounts, under a hosted station's bitrate ceiling.

@@ -1523,7 +1523,7 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
   if ('processor' in patch) {
     const pp = parseSettingsPatchKey<Partial<ProcessorSettings>>('processor', patch.processor);
     const merged: ProcessorSettings = { ...cur.processor };
-    for (const k of ['enabled', 'host', 'sendPort', 'returnPort', 'delayMs'] as const) {
+    for (const k of ['enabled', 'host', 'sendPort', 'returnPort', 'delayMs', 'failoverMs'] as const) {
       if (pp[k] !== undefined) (merged as unknown as Record<string, unknown>)[k] = pp[k];
     }
     // Whole-block rules on the merged state: a patch may turn processing on
@@ -1532,7 +1532,7 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
     if (issue) throw new Error(issue);
     // Every field is read at mixer startup, so any change is a restart. The
     // delay too: radio.liq holds the ICY title by it.
-    for (const k of ['enabled', 'host', 'sendPort', 'returnPort', 'delayMs'] as const) {
+    for (const k of ['enabled', 'host', 'sendPort', 'returnPort', 'delayMs', 'failoverMs'] as const) {
       if (merged[k] !== cur.processor[k]) restart = true;
     }
     next.processor = merged;

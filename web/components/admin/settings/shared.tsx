@@ -381,6 +381,7 @@ export interface ProcessorForm {
   sendPort: string;
   returnPort: string;
   delayMs: string;
+  failoverMs: string;
 }
 
 /** GET /settings `processorStatus`: the RUNNING mixer's processor, from
@@ -480,7 +481,7 @@ export interface SettingsData {
     jingleRotate?: JingleRotateOwner;
     crossfadeDuration?: number;
     ducking?: { voice?: number; intro?: number };
-    processor?: { enabled?: boolean; host?: string; sendPort?: number; returnPort?: number; delayMs?: number };
+    processor?: { enabled?: boolean; host?: string; sendPort?: number; returnPort?: number; delayMs?: number; failoverMs?: number };
     maxTrackSeconds?: number;
     maxTrackLengthMode?: 'cut' | 'exclude';
     minTrackSeconds?: number;

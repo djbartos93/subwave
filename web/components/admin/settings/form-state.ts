@@ -46,6 +46,7 @@ export function settingsForm(v: NonNullable<SettingsData['values']>): FormState 
       sendPort: String(v.processor?.sendPort ?? 9000),
       returnPort: String(v.processor?.returnPort ?? 9001),
       delayMs: String(v.processor?.delayMs ?? 0),
+      failoverMs: String(v.processor?.failoverMs ?? 2000),
     },
     maxTrackLengthMode: v.maxTrackLengthMode === 'exclude' ? 'exclude' : 'cut',
     maxTrackSeconds: String(v.maxTrackSeconds ?? 0),

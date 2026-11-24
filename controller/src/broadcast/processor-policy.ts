@@ -17,6 +17,7 @@
 
 import {
   PROCESSOR_DELAY_MS_BOUNDS,
+  PROCESSOR_FAILOVER_MS_BOUNDS,
   PROCESSOR_HOST_RE,
   PROCESSOR_PORT_BOUNDS,
 } from '../schemas/settings.js';
@@ -27,6 +28,8 @@ export interface ProcessorSettings {
   sendPort: number;
   returnPort: number;
   delayMs: number;
+  /** How long the return may be missing or silent before the dry mix airs. */
+  failoverMs: number;
 }
 
 export const PROCESSOR_DEFAULTS: ProcessorSettings = {
@@ -35,6 +38,7 @@ export const PROCESSOR_DEFAULTS: ProcessorSettings = {
   sendPort: 9000,
   returnPort: 9001,
   delayMs: 0,
+  failoverMs: 2000,
 };
 
 /** A marker whose heartbeat is older than this is from a mixer that stopped. */
@@ -57,6 +61,7 @@ export function normalizeProcessorSettings(stored: unknown): ProcessorSettings {
     sendPort: intIn(s.sendPort, PROCESSOR_PORT_BOUNDS, PROCESSOR_DEFAULTS.sendPort),
     returnPort: intIn(s.returnPort, PROCESSOR_PORT_BOUNDS, PROCESSOR_DEFAULTS.returnPort),
     delayMs: intIn(s.delayMs, PROCESSOR_DELAY_MS_BOUNDS, PROCESSOR_DEFAULTS.delayMs),
+    failoverMs: intIn(s.failoverMs, PROCESSOR_FAILOVER_MS_BOUNDS, PROCESSOR_DEFAULTS.failoverMs),
   };
 }
 
