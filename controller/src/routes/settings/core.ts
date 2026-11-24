@@ -25,6 +25,7 @@ import { queue } from '../../broadcast/queue.js';
 import { updateEndingSteer } from '../../broadcast/takeover-steer.js';
 import { handoverOffsetMinutes } from '../../broadcast/handover-policy.js';
 import { streamStatus } from '../../broadcast/liquidsoap-control.js';
+import { currentProcessorStatus } from '../../broadcast/processor-status.js';
 import { requireAdmin } from '../../middleware/auth.js';
 import { validateSettingsBody } from '../../middleware/validate.js';
 import { saveSecrets, SECRET_ENV_KEYS } from '../../setup/secrets.js';
@@ -70,6 +71,9 @@ router.get('/settings', requireAdmin, async (req, res) => {
       autoPick: queue.autoPick,
       pickerBusy: queue.pickerBusy,
       streamOnAir,
+      // The running mixer's external processor: built or not, and which side
+      // (processed return or dry mix) is on air right now.
+      processorStatus: currentProcessorStatus(),
       onAir,
       jingles: await jingles.list(),
       libraryStats: library.stats(),
@@ -97,6 +101,7 @@ router.get('/settings', requireAdmin, async (req, res) => {
         jinglePlacement: s.jinglePlacement,
         crossfadeDuration: s.crossfadeDuration,
         ducking: s.ducking,
+        processor: s.processor,
         // Repaired on the way out via the same function the air path uses: a
         // profile switch or backup restore can seed an off-step value (#1576).
         handover: { offsetMinutes: handoverOffsetMinutes() },

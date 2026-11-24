@@ -5,6 +5,8 @@ import { config } from '../config.js';
 // Pure policy constant — artist-guard.ts imports only music/recency.ts, which
 // imports nothing, so this stays a leaf and can't cycle back through settings.
 import { ARTIST_VARIETY_WINDOW } from '../broadcast/dj-agent/artist-guard.js';
+// Pure, importing only schemas/settings.ts.
+import { PROCESSOR_DEFAULTS } from '../broadcast/processor-policy.js';
 import {
   BEDS_CROSS_SEC_BOUNDS,
   BEDS_TAIL_SEC_BOUNDS,
@@ -64,6 +66,10 @@ export const DEFAULTS = {
   // time, weather, request intros); `intro` is the light talk-over duck
   // (intro.txt: between-track links) that leaves the song audible underneath.
   ducking: { voice: 0.22, intro: 0.30 },
+  // External broadcast processor (docs/external-processor.md). Off: radio.liq
+  // builds no processor stage, so an upgrade airs exactly what it did. Read
+  // once at mixer startup out of liquidsoap_processor_*.txt.
+  processor: { ...PROCESSOR_DEFAULTS },
   // Station-wide maximum on autonomously-picked track length; 0 = no cap (#447). A
   // show's own maxTrackSeconds overrides it (0 there = unlimited). Listener
   // requests always bypass it.

@@ -236,6 +236,11 @@ export const config = {
     // be saved ahead of the next render. Absent (an older broadcast image) falls
     // back to the setting. Read via broadcast/stream-mounts.ts.
     streamMountsFile: `${STATE_DIR}/stream-mounts.json`,
+    // radio.liq's external-processor state, at startup, on every switch between
+    // the processed return and the dry mix, and every 15 s:
+    // {enabled, onAir: processed|dry, delayMs, since, at}. Read via
+    // broadcast/processor-status.ts.
+    processorStatusFile: `${STATE_DIR}/processor-status.json`,
   },
   session: {
     // The live DJ session (chat-history JSON); archived into `dir` on roll.

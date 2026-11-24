@@ -152,7 +152,7 @@ export const SECTIONS = [
     // transition effects stay here by path, or editing them alone never shows
     // this section's save bar.
     formKeys: [
-      'crossfadeDuration', 'ducking', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'stream', 'loudness',
+      'crossfadeDuration', 'ducking', 'processor', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'stream', 'loudness',
       'transitions.equalPowerCrossfade', 'transitions.fadeAudibleEnd', 'transitions.fadeAudibleEndDb',
       'transitions.tailFromCurve', 'transitions.effects',
     ],
@@ -179,6 +179,11 @@ export const RESTART_PATHS: readonly string[] = [
   'transitions.equalPowerCrossfade',
   'ducking.voice',
   'ducking.intro',
+  'processor.enabled',
+  'processor.host',
+  'processor.sendPort',
+  'processor.returnPort',
+  'processor.delayMs',
   'archive.enabled',
   'archive.bitrate',
   'stream.opusEnabled',
@@ -208,7 +213,7 @@ export const ADVANCED_CARDS: Partial<Record<SectionId, readonly string[]>> = {
   library: ['seed-phase', 'propagation', 'enrichment'],
   listeners: ['ai-dj-influence'],
   broadcast: [
-    'crossfade', 'duck-depth', 'dj-transition-effects', 'max-track-length', 'dead-air-trim',
+    'crossfade', 'duck-depth', 'external-processor', 'dj-transition-effects', 'max-track-length', 'dead-air-trim',
     'loudness-levelling', 'opus-stream', 'flac-stream', 'ogg-metadata',
     'aac-stream', 'stream-mp3-bitrate', 'listener-buffer', 'max-listeners',
     'listener-country',
@@ -374,6 +379,10 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
   { label: 'Crossfade duration', section: 'broadcast', card: 'Crossfade', keywords: 'overlap seams transition restart' },
   { label: 'DJ over silence duck depth', section: 'broadcast', card: 'Duck depth', keywords: 'ducking voice smooth_add say idents heavy restart' },
   { label: 'DJ over a track duck depth', section: 'broadcast', card: 'Duck depth', keywords: 'ducking intro talk over link light smooth_add restart' },
+  { label: 'Route the mix through an external processor', section: 'broadcast', card: 'External processor', keywords: 'audio processing breakaway stereo tool omnia optimod srt bridge loudness compressor restart' },
+  { label: 'Bridge host', section: 'broadcast', card: 'External processor', keywords: 'processor ip address windows srt restart' },
+  { label: 'Send port / return port', section: 'broadcast', card: 'External processor', keywords: 'processor srt udp firewall restart' },
+  { label: 'Processing delay', section: 'broadcast', card: 'External processor', keywords: 'processor latency ms listener lead sync lyrics captions restart' },
   { label: 'Pair-aware transitions', section: 'stems', card: 'Stem transitions', keywords: 'pair drain successor crossfade' },
   { label: 'Stem cache', section: 'stems', card: 'Stem transitions', keywords: 'demucs drums bass vocals disk' },
   { label: 'Stem cache budget', section: 'stems', card: 'Stem transitions', keywords: 'gb evict oldest' },

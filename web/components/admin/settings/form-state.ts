@@ -40,6 +40,13 @@ export function settingsForm(v: NonNullable<SettingsData['values']>): FormState 
       voice: String(v.ducking?.voice ?? 0.22),
       intro: String(v.ducking?.intro ?? 0.3),
     },
+    processor: {
+      enabled: v.processor?.enabled === true,
+      host: v.processor?.host ?? '',
+      sendPort: String(v.processor?.sendPort ?? 9000),
+      returnPort: String(v.processor?.returnPort ?? 9001),
+      delayMs: String(v.processor?.delayMs ?? 0),
+    },
     maxTrackLengthMode: v.maxTrackLengthMode === 'exclude' ? 'exclude' : 'cut',
     maxTrackSeconds: String(v.maxTrackSeconds ?? 0),
     fadeAtShowEnd: v.fadeAtShowEnd === true,

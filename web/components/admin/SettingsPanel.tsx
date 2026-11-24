@@ -1248,6 +1248,148 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
               </Card>
             )}
 
+            {form && !hosted && (
+              <Card
+                title="External processor"
+                sub={
+                  !data?.processorStatus?.enabled
+                    ? 'not in the chain'
+                    : data.processorStatus.onAir === 'processed'
+                      ? 'processed audio on air'
+                      : data.processorStatus.onAir === 'dry'
+                        ? 'return lost: airing the dry mix'
+                        : 'status unknown'
+                }
+              >
+                <div className="grid gap-3">
+                  <div className="field">
+                    <div className="flex items-center gap-2">
+                      <Label>Route the mix through an external processor</Label>
+                      <Pill tone="ink">restart required</Pill>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Seg
+                        options={[
+                          { id: 'on', label: 'On' },
+                          { id: 'off', label: 'Off' },
+                        ]}
+                        value={form.processor.enabled ? 'on' : 'off'}
+                        onChange={id =>
+                          setForm(f =>
+                            f ? { ...f, processor: { ...f.processor, enabled: id === 'on' } } : f,
+                          )
+                        }
+                      />
+                    </div>
+                    <SettingsFieldError path="processor.enabled" errors={fieldErrors} />
+                    <div className="field-hint">
+                      Sends the finished mix to a broadcast processor (Breakaway One, Stereo Tool
+                      and the like) on another machine over SRT and airs what comes back, on every
+                      mount. If the return stops, the dry mix airs until it is back, so the station
+                      never goes silent. The other machine runs the bridge script; setup is in{' '}
+                      <code>docs/external-processor.md</code>.
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <div className="flex items-center gap-2">
+                      <Label>Bridge host</Label>
+                      <Pill tone="ink">restart required</Pill>
+                    </div>
+                    <Input
+                      className="w-64"
+                      aria-label="External processor bridge host"
+                      placeholder="192.168.1.50"
+                      value={form.processor.host}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                        setForm(f => (f ? { ...f, processor: { ...f.processor, host: e.target.value } } : f))
+                      }
+                    />
+                    <SettingsFieldError path="processor.host" errors={fieldErrors} />
+                    <div className="field-hint">
+                      The address of the machine running the bridge, as the broadcast container
+                      reaches it. A LAN IP address is the safest choice.
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <div className="flex items-center gap-2">
+                      <Label>Send port / return port</Label>
+                      <Pill tone="ink">restart required</Pill>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="mono-num w-28"
+                        aria-label="External processor send port"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        step={1}
+                        value={form.processor.sendPort}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                          setForm(f => (f ? { ...f, processor: { ...f.processor, sendPort: e.target.value } } : f))
+                        }
+                      />
+                      <span className="text-[12px] text-muted">/</span>
+                      <Input
+                        className="mono-num w-28"
+                        aria-label="External processor return port"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        step={1}
+                        value={form.processor.returnPort}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                          setForm(f => (f ? { ...f, processor: { ...f.processor, returnPort: e.target.value } } : f))
+                        }
+                      />
+                      <span className="text-[12px] text-muted">UDP</span>
+                    </div>
+                    <SettingsFieldError path="processor.sendPort" errors={fieldErrors} />
+                    <SettingsFieldError path="processor.returnPort" errors={fieldErrors} />
+                    <div className="field-hint">
+                      SUB/WAVE connects out to the bridge on both: the mix goes to the send port
+                      and the processed audio comes back from the return port. They must match
+                      SEND_PORT and RETURN_PORT in the bridge script, and the bridge machine&apos;s
+                      firewall must let both in.
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <div className="flex items-center gap-2">
+                      <Label>Processing delay</Label>
+                      <Pill tone="ink">restart required</Pill>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="mono-num w-28"
+                        aria-label="External processor delay (milliseconds)"
+                        type="number"
+                        min={0}
+                        max={10000}
+                        step={10}
+                        value={form.processor.delayMs}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                          setForm(f => (f ? { ...f, processor: { ...f.processor, delayMs: e.target.value } } : f))
+                        }
+                      />
+                      <span className="text-[12px] text-muted">ms</span>
+                    </div>
+                    <SettingsFieldError path="processor.delayMs" errors={fieldErrors} />
+                    <div className="field-hint">
+                      How much later the processed audio reaches the mounts than the dry mix
+                      would: the processor&apos;s own latency plus about 2.2 s of network and
+                      buffers. A few hundred ms either way is fine. While the processed return
+                      is on air,
+                      players add it to the listener buffer so the track clock, lyrics and
+                      captions stay in step, and the stream title change waits for it. Running
+                      mixer: {data?.processorStatus?.enabled ? `${data.processorStatus.delayMs} ms` : 'off'}.
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
             {form && (
               <Card title="DJ transition effects" sub="which gestures the DJ may reach for">
                 <div className="field-hint">
