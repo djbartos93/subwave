@@ -40,6 +40,21 @@ for the full architecture write-up.
 | `subwave_list_jingles` | admin | The jingle library — idents and announcements, no length cap. |
 | `subwave_play_jingle` | admin | Queue a jingle to air at the next safe boundary, at full level. |
 | `subwave_refresh_playlist` | admin | Rebuild the fallback auto-playlist for the current mood. |
+| `subwave_list_personas` | admin | Every persona in full, plus the installed TTS voices. |
+| `subwave_create_persona` | admin | Add a DJ persona. |
+| `subwave_update_persona` | admin | Change only the given fields on a persona. |
+| `subwave_delete_persona` | admin | Remove a persona and the shows it hosts. |
+| `subwave_list_shows` | admin | Every show in full, the weekly grid and the mood list. |
+| `subwave_create_show` | admin | Add a show with a host, brief and music filters. |
+| `subwave_update_show` | admin | Change only the given fields on a show. |
+| `subwave_delete_show` | admin | Remove a show and clear its hours. |
+| `subwave_schedule_show` | admin | Put a show on (or clear) hours of the weekly grid. |
+| `subwave_get_skill` | admin | One skill's full definition. |
+| `subwave_create_skill` | admin | Add a custom prompt-only skill (arrives disabled). |
+| `subwave_update_skill` | admin | Change only the given fields on a skill. |
+| `subwave_delete_skill` | admin | Remove a custom skill. |
+| `subwave_enable_skill` | admin | Turn a skill's automatic airing on or off. |
+| `subwave_set_skill_personas` | admin | Choose exactly which personas run a skill. |
 
 Listeners have no skip — track-end is the only transition, and a requested
 song is **queued**, not played immediately. `subwave_skip_track` exists as a

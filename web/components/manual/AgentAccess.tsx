@@ -22,6 +22,21 @@ const TOOLS = [
   { name: 'subwave_list_jingles', summary: 'The jingle library: idents, sweepers and announcements — no length cap.', auth: 'Admin' },
   { name: 'subwave_play_jingle', summary: 'Queues a jingle to air at the next track boundary, at full level with the music yielding to it.', auth: 'Admin' },
   { name: 'subwave_refresh_playlist', summary: 'Rebuilds the fallback auto-playlist for the current mood.', auth: 'Admin' },
+  { name: 'subwave_list_personas', summary: 'Every DJ persona in full (soul, dials, voice, skills), plus the voices installed on the station.', auth: 'Admin' },
+  { name: 'subwave_create_persona', summary: 'Adds a new DJ persona to the roster.', auth: 'Admin' },
+  { name: 'subwave_update_persona', summary: 'Changes only the given fields on a persona.', auth: 'Admin' },
+  { name: 'subwave_delete_persona', summary: 'Removes a persona, and the shows it hosts with their schedule hours.', auth: 'Admin' },
+  { name: 'subwave_list_shows', summary: 'Every show in full, the weekly grid, and the mood list.', auth: 'Admin' },
+  { name: 'subwave_create_show', summary: 'Adds a show: a host, a brief, and music filters.', auth: 'Admin' },
+  { name: 'subwave_update_show', summary: 'Changes only the given fields on a show.', auth: 'Admin' },
+  { name: 'subwave_delete_show', summary: 'Removes a show and clears its schedule hours.', auth: 'Admin' },
+  { name: 'subwave_schedule_show', summary: 'Puts a show on (or clears) hours of the weekly schedule.', auth: 'Admin' },
+  { name: 'subwave_get_skill', summary: "Reads one skill's full definition: brief, cooldown, context, timer.", auth: 'Admin' },
+  { name: 'subwave_create_skill', summary: 'Adds a custom prompt-only skill. It arrives switched off.', auth: 'Admin' },
+  { name: 'subwave_update_skill', summary: 'Changes only the given fields on a skill.', auth: 'Admin' },
+  { name: 'subwave_delete_skill', summary: 'Removes a custom skill.', auth: 'Admin' },
+  { name: 'subwave_enable_skill', summary: "Turns a skill's automatic airing on or off.", auth: 'Admin' },
+  { name: 'subwave_set_skill_personas', summary: 'Chooses exactly which DJs run a skill.', auth: 'Admin' },
 ];
 
 export default function AgentAccess() {
@@ -87,6 +102,14 @@ export default function AgentAccess() {
           agent already knows the exact track, the search-and-queue pair does the same
           job with no LLM and no rate limit. The DJ-control tools speak immediately.
         </p>
+        <p>
+          The authoring tools build the station itself: an agent can write a new DJ
+          persona, give it a show with its own brief and music filters, put that show
+          on the weekly schedule, and write skills for it. They save through the same
+          checks as the admin panel, so a bad field comes back naming what to fix. A
+          skill made this way is words only and arrives switched off; code for a skill
+          is still installed and reviewed by you in the admin panel.
+        </p>
       </section>
 
       <section className="bs-section">
@@ -120,7 +143,8 @@ export default function AgentAccess() {
         <p>
           The seven read-and-request tools need no credentials: they map to the same
           public endpoints a browser uses. Everything that drives the station — voice,
-          segments, skills, effects, the queue, the skip — is gated by the station's
+          segments, skills, effects, the queue, the skip, and the personas, shows and
+          skills themselves — is gated by the station's
           admin credentials, passed as a Basic auth header (an{' '}
           <code className="bs-code-inline">Authorization</code> header on the HTTP
           endpoint, or <code className="bs-code-inline">ADMIN_USER</code> /{' '}

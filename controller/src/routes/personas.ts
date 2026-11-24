@@ -3,7 +3,8 @@
 // personas/install.ts; packing lives in personas/bundle.ts (#1620).
 
 import express from 'express';
-import { PERSONA_TTS_INHERIT } from '../schemas/persona.js';
+import { PERSONA_LIMIT, PERSONA_TTS_INHERIT, personaPostSchema, type PersonaParsed } from '../schemas/persona.js';
+import { validateBody } from '../middleware/validate.js';
 import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
 import * as settings from '../settings.js';
 import { requireAdmin } from '../middleware/auth.js';
@@ -187,6 +188,51 @@ router.delete('/personas/:id', requireAdmin, async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+// Upsert ONE persona, the same shape as POST /shows: merge into the PERSISTED
+// roster (replace on id match, else append) and let settings.update() validate
+// the whole array, mint a missing id and run its sweep. It exists so an API or
+// MCP client can add a DJ without posting the whole roster to /settings, which
+// would overwrite any edit made in the admin panel since that client last read.
+// The avatar belongs to the upload and DELETE avatar routes (the only file
+// writer), so an edit keeps the stored one whatever the body says: an absent
+// avatar reads as '' and the sweep would then delete the file. A new persona
+// never takes an avatar from the body for the same reason.
+router.post(
+  '/personas',
+  requireAdmin,
+  validateBody(personaPostSchema, { messages: 'verbatim' }),
+  async (req, res) => {
+    const incoming = req.body.persona as PersonaParsed;
+
+    await settings.load();
+    const existing = settings.get().personas || [];
+    const id = typeof incoming.id === 'string' ? incoming.id : '';
+    const idx = id ? existing.findIndex((p: any) => p.id === id) : -1;
+
+    let merged: any[];
+    if (idx >= 0) {
+      merged = existing.map((p: any, i: number) => (i === idx ? { ...incoming, avatar: p.avatar || '' } : p));
+    } else {
+      if (existing.length >= PERSONA_LIMIT) {
+        return res.status(409).json({ error: `the persona roster is full (${PERSONA_LIMIT} max) — remove one first` });
+      }
+      merged = [...existing, { ...incoming, avatar: '' }];
+    }
+
+    try {
+      await settings.update({ personas: merged });
+      const next = settings.get().personas || [];
+      // A new persona without an id gets one minted, and lands last.
+      const saved = (id && next.find((p: any) => p.id === id)) || (idx < 0 ? next[next.length - 1] : null) || null;
+      queue.log('scheduler', `[personas] "${saved?.id || id}" ${idx >= 0 ? 'edited' : 'added'} via API`);
+      res.json({ personas: next, persona: saved });
+    } catch (err: any) {
+      queue.log('error', `POST /personas failed: ${err.message}`);
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
 
 // Installs a community persona as an ordinary roster entry, NOT on air
 // (activePersonaId is untouched). A full roster or a duplicate on-air name 409s.

@@ -2,44 +2,20 @@
  * The SUB/WAVE MCP tool set — the single source of truth for both transports
  * (the controller's HTTP mount in routes/mcp.ts, and the standalone stdio
  * server in mcp-subwave/src/index.ts). `registerSubwaveTools(server, client)`
- * registers all 20 tools on an McpServer; each tool is a thin wrapper over one
- * controller endpoint via the shared SubwaveClient.
+ * registers all 36 tools on an McpServer; each tool is a thin wrapper over one
+ * controller endpoint via the shared SubwaveClient. The persona, show and skill
+ * authoring tools live in authoring-tools.ts and are registered from here.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { SubwaveError, type RequestStatus, type SubwaveClient } from "./client.js";
+import type { RequestStatus, SubwaveClient } from "./client.js";
+import { output, run, text } from "./tool-result.js";
+import { registerAuthoringTools } from "./authoring-tools.js";
 // Zod-only module, so it resolves in the standalone stdio server's build too.
 import { REQUEST_NAME_MAX, REQUEST_TEXT_MAX } from "../schemas/request.js";
 import { skipBodyShape } from "../schemas/dj.js";
 
-/** Render any value as a text content block. */
-function text(value: unknown): { type: "text"; text: string } {
-  return {
-    type: "text",
-    text: typeof value === "string" ? value : JSON.stringify(value, null, 2),
-  };
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Wrap a tool body so SubwaveError (and anything else) becomes an MCP error
- * result the agent can read, rather than a thrown exception. The error text is
- * already actionable — see client.ts — so we pass it straight through.
- */
-async function run(
-  body: () => Promise<{ content: ReturnType<typeof text>[]; structuredContent?: Record<string, unknown> }>,
-) {
-  try {
-    return await body();
-  } catch (err) {
-    const message =
-      err instanceof SubwaveError
-        ? err.message
-        : `Unexpected error: ${err instanceof Error ? err.message : String(err)}`;
-    return { content: [text(message)], isError: true };
-  }
-}
 
 // Song requests resolve in the booth in the background (LLM match + TTS
 // intro); the receipt is polled until it lands. The default budget covers a
@@ -52,22 +28,6 @@ const DEFAULT_REQUEST_POLL_BUDGET_MS = 45_000;
 export interface RegisterToolsOptions {
   /** Max time subwave_request_song blocks polling for an outcome. */
   requestPollBudgetMs?: number;
-}
-
-/**
- * Wraps every tool's output shape. The SDK publishes a zod output schema with
- * `$schema: draft-07` (its zod v4 path hard-codes that target), and an MCP
- * client that validates structured output with a JSON Schema 2020-12-only
- * validator refuses the whole tool over that one line ("unsupported
- * dialect"). Clearing it through zod metadata publishes the schema with no
- * dialect, so each client reads it in its own default, draft-07 or 2020-12.
- * Declaring 2020-12 instead would break the draft-07 clients the same way.
- * That is safe only while these shapes use nothing the two dialects read
- * differently (tuples, `definitions`/`$defs`, `dependencies`);
- * `scripts/mcp-output-schema.test.ts` pins both halves.
- */
-function output<T extends z.ZodRawShape>(shape: T) {
-  return z.object(shape).meta({ $schema: undefined });
 }
 
 /** Shared output shape for the request tools — mirrors GET /request/:id. */
@@ -842,4 +802,6 @@ export function registerSubwaveTools(
         return { content: [text("Auto-playlist rebuilt for the current mood.")], structuredContent: { ...result } };
       }),
   );
+
+  registerAuthoringTools(server, client);
 }
