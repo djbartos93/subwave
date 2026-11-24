@@ -116,6 +116,9 @@ export function settingsForm(v: NonNullable<SettingsData['values']>): FormState 
     pauseTalkMinSeconds: String(v.pauseTalkMinSeconds ?? 20),
     djBehaviour: {
       showWelcome: v.djBehaviour?.showWelcome === true,
+      // Absent reads as ON, the time check every station has always aired,
+      // matching settings.load()'s coercion.
+      hourlyTimeCheck: v.djBehaviour?.hourlyTimeCheck !== false,
       previewNextShow: v.djBehaviour?.previewNextShow !== false,
       sameHostAcknowledgement: v.djBehaviour?.sameHostAcknowledgement === true,
       // Absent (a settings.json predating the key) reads as OFF, the

@@ -78,7 +78,7 @@ try {
   assert.equal(clockEnabled(), true, 'fresh install defaults to the clock ON');
   assert.equal(speakClockAllowed(), true, 'fresh install lets a line speak the clock');
   assert.equal(autoTimeCheckAllowed(), true, 'fresh install allows the hourly check');
-  assert.deepEqual(clockStatus(), { enabled: true }, 'status snapshot mirrors the switch');
+  assert.deepEqual(clockStatus(), { enabled: true, hourlyTimeCheck: true }, 'status snapshot mirrors the switch');
 
   // A persona loud enough that every slot is live, so the OFF assertions below
   // measure the switch rather than a quiet persona firing nothing anyway.
@@ -104,7 +104,7 @@ try {
   assert.equal(clockEnabled(), false, 'update({djSpeakClock:false}) takes effect');
   assert.equal(speakClockAllowed(), false, 'spoken lines are refused the clock');
   assert.equal(autoTimeCheckAllowed(), false, 'the automatic time check is refused');
-  assert.deepEqual(clockStatus(), { enabled: false }, 'status snapshot follows');
+  assert.deepEqual(clockStatus(), { enabled: false, hourlyTimeCheck: true }, 'status snapshot follows');
 
   // The tags survive, the numerals do not, and the heading moves with them.
   const off = clockLine();

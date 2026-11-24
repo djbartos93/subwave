@@ -48,7 +48,7 @@ import { cleanupOldVoices } from '../audio/tts.js';
 import { cleanupPauseTalkSilence } from '../audio/wav-silence.js';
 import { warmHeavy } from '../audio/ttsHeavyClient.js';
 import { shouldFire } from './dj-gate.js';
-import { speakClockAllowed, stationIdDaypartStamp } from './clock-policy.js';
+import { hourlySlotPlan, speakClockAllowed, stationIdDaypartStamp } from './clock-policy.js';
 import { createStationIdPicker } from './station-ident.js';
 import { VERBATIM_META } from './prompt-memory.js';
 import { scheduledTalkAir, talkOnlyBetweenTracks, withTalkAir } from './talk-air.js';
@@ -738,9 +738,17 @@ async function refreshAutoPlaylistInner(canPublish: () => boolean): Promise<Refr
 
 // Gate-free runner — also called directly by the /dj/segment command route as
 // an operator override. The cron wrapper below adds the frequency gate.
-export async function runHourlyCheck({ showWelcome = false, automatic = false }: { showWelcome?: boolean; automatic?: boolean } = {}) {
+//
+// `timeCheck` false is the welcome-only segment: the automatic slot with the
+// time check switched off at a show change (clock-policy.ts hourlySlotPlan).
+// It needs a show to welcome, so with none on air it stands down.
+export async function runHourlyCheck(
+  { showWelcome = false, timeCheck = true, automatic = false }:
+    { showWelcome?: boolean; timeCheck?: boolean; automatic?: boolean } = {},
+) {
   return withTrace({ kind: 'hourly' }, async () => {
     const ctx = await prepareEpisodeContext(await getFullContext());
+    if (!timeCheck && !(showWelcome && ctx?.activeShow?.name)) return null;
     // Guest rotation: on a show with co-hosts the ordinary time check may come
     // from a guest. A show welcome belongs to the incoming host: it establishes
     // that show's voice, rather than making a guest appear to take it over.
@@ -755,6 +763,7 @@ export async function runHourlyCheck({ showWelcome = false, automatic = false }:
       recentOpeners: queue.getRecentOpeners(),
       persona: speaker,
       showWelcome,
+      timeCheck,
     });
     const outcome = await queue.announce(script, 'hourly-check', {
       persona: speaker, meta: { personaId: speaker?.id, personaName: speaker?.name }, hostSpeech: speechOwner.hostSpeech,
@@ -1102,7 +1111,7 @@ function talkEligible(kind: TalkKind, now: Date, rolled: SessionRoll | null): bo
     // that aired in this very tick.
     if (programme.suppressHourly(now)) return false;
     if (rolled?.ctx && rolled.introAired) return false;
-    if (!shouldFire('hourly', now)) return false;
+    if (!shouldFire('hourly', now, { showStarted: !!rolled?.showStarted })) return false;
     if (!djCallsAllowed()) return false;  // nobody listening — stay on the auto playlist
     if (!optionalSegmentsAllowed()) return false;  // over the daily token budget — mute optional segments
     return true;
@@ -1184,9 +1193,14 @@ async function runTalkSlot(plan: Extract<TalkPlan, { act: 'fire' }>, rolled: Ses
 async function runTalkSlotInner(plan: Extract<TalkPlan, { act: 'fire' }>, rolled: SessionRoll | null) {
   try {
     switch (plan.kind) {
-      case 'hourly':
-        await runHourlyCheck({ showWelcome: settings.get().djBehaviour.showWelcome && !!rolled?.showStarted, automatic: true });
+      case 'hourly': {
+        // Asked again at the fire: a switch saved since the planner's check
+        // must not air a time check the operator just turned off.
+        const slot = hourlySlotPlan({ showStarted: !!rolled?.showStarted });
+        if (!slot.timeCheck && !slot.welcome) return;
+        await runHourlyCheck({ showWelcome: slot.welcome, timeCheck: slot.timeCheck, automatic: true });
         return;
+      }
       case 'station-id':
         // Read off the PLAN, not hardcoded, so the table stays the only place
         // placement is decided.

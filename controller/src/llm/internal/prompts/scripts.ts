@@ -546,7 +546,23 @@ const HOURLY_NO_WEATHER_RULE = 'For this hourly time check, do not mention weath
   + ' Do not infer them from persona instructions, the day, season, daypart, daylight or darkness, or recent speech/recap.'
   + ' This rule overrides persona and tone instructions for this segment; weather belongs only in the dedicated weather segment.';
 
-export async function generateHourlyTime({ recap = null, context = null, recentOpeners = null, persona = null, showWelcome = false }: any = {}) {
+// The welcome-only line the :00 slot airs at a show change when the operator
+// has switched the time check off (djBehaviour.hourlyTimeCheck). The clock
+// numerals are withheld (the daypart tags stay), and it is told not to state
+// the time.
+const SHOW_WELCOME_NO_WEATHER_RULE = HOURLY_NO_WEATHER_RULE.replace('For this hourly time check', 'For this show welcome');
+
+export async function generateHourlyTime({ recap = null, context = null, recentOpeners = null, persona = null, showWelcome = false, timeCheck = true }: any = {}) {
+  if (!timeCheck) {
+    const ctxLines = buildContextLines(context, { contextFields: SCRIPT_CONTEXT_FIELDS, withholdClock: true });
+    ctxLines.push(`Task: the schedule is now in "${context?.activeShow?.name}". Give one short, natural welcome to it, in character. ${lengthPhrase('hourly', persona || undefined)}. Do not state the time or the hour, introduce yourself by name, mention an outgoing presenter, or claim the show began at a particular time.`);
+    return djText({
+      system: djSystem(persona || undefined) + '\n\n' + SHOW_WELCOME_NO_WEATHER_RULE,
+      prompt: decoratePrompt(ctxLines.join('\n'), { kind: 'hourly', recap, recentOpeners }),
+      temperature: 0.9, topP: 0.95, repeatPenalty: 1.15, seed: randomSeed(),
+      kind: 'generateShowWelcome',
+    });
+  }
   const ctxLines = buildContextLines(context, { contextFields: SCRIPT_CONTEXT_FIELDS });
   const timeClause = nextHourlyTimeClause(context?.clock);
   ctxLines.push(`Task: a brief top-of-the-hour time check, in character. ${lengthPhrase('hourly', persona || undefined)}. ${timeClause}`);

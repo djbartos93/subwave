@@ -29,12 +29,44 @@ export function stationIdDaypartDrifted(stamped: unknown, live: unknown): boolea
   return stamped.trim() !== live.trim();
 }
 
+// The operator's switch for the automatic top-of-the-hour time check alone
+// (djBehaviour.hourlyTimeCheck). Absent/non-boolean reads as ON.
+export function hourlyTimeCheckEnabled(): boolean {
+  return settings.get()?.djBehaviour?.hourlyTimeCheck !== false;
+}
+
 // May the AUTOMATIC top-of-the-hour time check fire? Manual runners must NOT
-// call this — bypassing the gate is what preserves the operator's pad.
+// call this — bypassing the gate is what preserves the operator's pad. Either
+// switch stands it down: the clock switch keeps every clock reading off air,
+// the hourly switch drops only this segment.
 export function autoTimeCheckAllowed(): boolean {
-  return clockEnabled();
+  return clockEnabled() && hourlyTimeCheckEnabled();
+}
+
+// What the automatic :00 slot airs. The show welcome rides the hourly slot, so
+// standing the time check down must not take a show change's welcome with it:
+// with the time check off, a show boundary still airs the welcome on its own
+// (no clock reading in it), and a plain hour boundary airs nothing.
+export interface HourlySlotPlan {
+  timeCheck: boolean;
+  welcome: boolean;
+}
+
+export function decideHourlySlot(
+  { timeCheckAllowed, welcomeOn, showStarted }:
+    { timeCheckAllowed: boolean; welcomeOn: boolean; showStarted: boolean },
+): HourlySlotPlan {
+  return { timeCheck: timeCheckAllowed, welcome: welcomeOn && showStarted };
+}
+
+export function hourlySlotPlan({ showStarted = false }: { showStarted?: boolean } = {}): HourlySlotPlan {
+  return decideHourlySlot({
+    timeCheckAllowed: autoTimeCheckAllowed(),
+    welcomeOn: settings.get()?.djBehaviour?.showWelcome === true,
+    showStarted,
+  });
 }
 
 export function clockStatus() {
-  return { enabled: clockEnabled() };
+  return { enabled: clockEnabled(), hourlyTimeCheck: hourlyTimeCheckEnabled() };
 }
