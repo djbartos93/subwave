@@ -17,7 +17,8 @@
 //      from a stale or absent marker.
 //   5. A hosted station can neither save it nor build it.
 //   6. radio.liq keeps the stage where the docs say: after the idle gate, before
-//      the bus limiter, with the dry mix as the fallback.
+//      the bus limiter, with the dry mix as the fallback, taken also while the
+//      return arrives silent and the dry mix was not.
 //
 // No containers and no network. Run: `npm test -- external-processor`.
 
@@ -168,6 +169,17 @@ test('the delay counts only while the processed return airs', () => {
   assert.equal(processorLeadSeconds(processorStatus(marker({ enabled: false }), NOW)), 0);
 });
 
+test('the dry reason is reported, and only while the dry mix airs', () => {
+  assert.equal(processorStatus(marker({ onAir: 'dry', reason: 'silent' }), NOW).reason, 'silent');
+  assert.equal(processorStatus(marker({ onAir: 'dry', reason: 'lost' }), NOW).reason, 'lost');
+  // A silent return airs the dry mix, so it adds no delay either.
+  assert.equal(processorLeadSeconds(processorStatus(marker({ onAir: 'dry', reason: 'silent' }), NOW)), 0);
+  assert.equal(processorStatus(marker({ reason: 'silent' }), NOW).reason, null, 'processed has no dry reason');
+  assert.equal(processorStatus(marker({ onAir: 'dry', reason: 'gremlins' }), NOW).reason, null);
+  // A mixer from before the silence check writes no reason at all.
+  assert.equal(processorStatus(marker({ onAir: 'dry', reason: undefined }), NOW).reason, null);
+});
+
 test('an absent, stale or malformed marker adds nothing', () => {
   assert.equal(processorLeadSeconds(processorStatus(null, NOW)), 0);
   const stale = marker({ at: (NOW - PROCESSOR_MARKER_STALE_MS - 1000) / 1000 });
@@ -216,10 +228,18 @@ test('radio.liq builds the stage after the idle gate, before the bus limiter', (
   const here = path.dirname(fileURLToPath(import.meta.url));
   const liq = readFileSync(path.join(here, '../../liquidsoap/radio.liq'), 'utf8');
   const idle = liq.indexOf('id="idle_gate"');
-  const stage = liq.indexOf('fallback(id="processor_fallback", track_sensitive=false, [processed, radio])');
+  const stage = liq.indexOf('fallback(id="processor_fallback", track_sensitive=false, [processed_gated, dry])');
   const limiter = liq.indexOf('radio = compress(');
   assert.ok(idle > 0 && stage > idle, 'the stage must see the idle gate');
   assert.ok(limiter > stage, 'the limiter must catch the processed return too');
+  // A return that arrives silent while the dry mix is not airs the dry mix
+  // (the station keeps making sound), and the return stays pulled while it
+  // does, or the silent verdict could never see the processor come back.
+  assert.ok(liq.includes('processed_gated = source.available(processed_level, {not processor_return_silent()})'));
+  assert.ok(liq.includes('output.dummy(id="processor_return_meter", fallible=true, processed_level)'));
+  // The verdict compares with the dry mix at the matching moment, never the
+  // return's silence alone: the idle gate is silent on both sides.
+  assert.match(liq, /and processor_wet_silent_for\(\) >= processor_silent_after_s\s+and processor_dry_audible_when_return_was\(\)/);
   // The send follows the on-air lifecycle, so an off-air mixer stops pulling.
   assert.match(liq, /id="processor_send",[\s\S]*?start=false,/);
   assert.match(liq, /def stream_up\(\)[\s\S]*?start_processor\(\)/);

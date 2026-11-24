@@ -68,9 +68,11 @@ Each one records a measured failure.
 
 **External processor**
 - The stage sits after the idle gate and before the bus limiter, so the processor gets the whole mix and the limiter and ICY insert see whatever airs. The mixer is the SRT caller on both legs (no published UDP port), and both legs are headerless s16le PCM so either end can rejoin mid-stream.
+- `buffer.adaptative` plays at (smoothed fill ÷ prebuffer), clamped to `limit`, so both ends pass `limit=1.001` (the stock 1.25 turned arrival jitter into audible pitch wobble on air; real clock drift is parts per million) and `reset=true` (without it the speed estimate survives an underrun, so audio resumed slow and crept back: a click, then a pitch sag).
 - The return's prebuffer is 1 s. At 0.3 s, ordinary ~0.2 s scheduling stalls (measured in Docker) drained it and flapped to the dry mix several times a minute.
 - The fallback has no transition function: `fade.in`/`fade.out` act per track and would keep re-fading the dry chain's track marks after a switch. The hard cut was measured gapless both ways.
 - The send output is built with `start=false` and started and stopped by `stream_up`/`stream_down`, so an off-air mixer stops pulling the chain as before.
+- The fallback's first choice is the return gated by the silence check (`processed_gated`): the dry mix also airs while the return arrives silent and the dry mix, at the matching moment, was not. Levels are two `rms()` sums read by the 0.5 s status tick, and `output.dummy` keeps the return pulled while the dry mix airs, or a silent verdict could never clear. Never judge the return's silence alone: the idle gate, quiet passages and silent intros are silent on both sides.
 - While the processed return airs, `on_meta` delays the ICY insert by `processor.delayMs` in a `thread.run` that catches its own errors.
 
 ## Testing

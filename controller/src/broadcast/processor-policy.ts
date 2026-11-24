@@ -72,18 +72,25 @@ export function processorConfigIssue(p: ProcessorSettings): string | null {
 
 export type ProcessorOnAir = 'processed' | 'dry';
 
+/** Why the dry mix airs: the return stopped arriving, or it arrives silent
+ *  while the dry mix is not (radio.liq PROCESSOR SILENCE CHECK). */
+export type ProcessorDryReason = 'lost' | 'silent';
+
 export interface ProcessorStatus {
   /** The running mixer built the processor stage. */
   enabled: boolean;
   /** Which side is on air; null when unknown (no marker, stale, malformed). */
   onAir: ProcessorOnAir | null;
+  /** Why the dry mix airs; null while processed, or from a mixer that predates
+   *  the silence check. */
+  reason: ProcessorDryReason | null;
   /** The delay the running mixer was started with. */
   delayMs: number;
   /** Epoch ms the current side went on air, null when unknown. */
   since: number | null;
 }
 
-const UNKNOWN: ProcessorStatus = { enabled: false, onAir: null, delayMs: 0, since: null };
+const UNKNOWN: ProcessorStatus = { enabled: false, onAir: null, reason: null, delayMs: 0, since: null };
 
 /** Marker timestamps are liquidsoap `time()`, unix SECONDS. */
 function toMs(raw: unknown): number | null {
@@ -101,9 +108,11 @@ export function processorStatus(marker: unknown, now: number): ProcessorStatus {
   const at = toMs(m.at);
   if (at === null || now - at > PROCESSOR_MARKER_STALE_MS) return UNKNOWN;
   const onAir = m.onAir === 'processed' || m.onAir === 'dry' ? m.onAir : null;
+  const reason = onAir === 'dry' && (m.reason === 'lost' || m.reason === 'silent') ? m.reason : null;
   return {
     enabled: true,
     onAir,
+    reason,
     delayMs: intIn(m.delayMs, PROCESSOR_DELAY_MS_BOUNDS, 0),
     since: onAir ? toMs(m.since) : null,
   };

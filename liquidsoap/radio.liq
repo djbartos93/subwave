@@ -2476,12 +2476,21 @@ end)
 #    dry chain's track marks after the switch.
 #  * The send output follows the on-air lifecycle (stream_up/stream_down), so an
 #    off-air mixer still stops pulling the chain.
-#  * processor-status.json tells the controller which side is on air and the
-#    operator's measured delay, which it adds to the listener lead it publishes
-#    only while the processed return airs. Heartbeat `at` every 15 s.
+#  * A return that keeps ARRIVING can still be silent: Breakaway stopped while
+#    the bridge records its dead cable, or the send leg down while the bridge
+#    feeds the processor its own silence. So the dry mix also airs while the
+#    return is silent and the dry mix, at the matching moment, was not (see
+#    PROCESSOR SILENCE CHECK below). Comparing against the dry mix is what keeps
+#    the idle gate, quiet passages and silent intros from tripping it.
+#  * processor-status.json tells the controller which side is on air, why the
+#    dry mix airs (`reason`: lost | silent) and the operator's measured delay,
+#    which it adds to the listener lead it publishes only while the processed
+#    return airs. Heartbeat `at` every 15 s.
 processor_on_air = ref(false)
+processor_reason = ref("")
 processor_since = ref(time())
 processor_marker_at = ref(0.)
+processor_return_silent = ref(false)
 processor_output_start = ref(fun () -> ())
 processor_output_stop = ref(fun () -> ())
 
@@ -2492,6 +2501,7 @@ def write_processor_marker() =
       data=json.stringify(compact=true, {
         enabled = processor_active,
         onAir = on_air,
+        reason = processor_reason(),
         delayMs = processor_delay_ms(),
         since = processor_since(),
         at = time()
@@ -2506,9 +2516,53 @@ def write_processor_marker() =
   end
 end
 
+# PROCESSOR SILENCE CHECK. Levels are rms() over 0.5 s on both sides of the
+# stage, read by the 0.5 s status tick (off the streaming thread), so the
+# per-frame cost is two running sums.
+#  * The return is SILENT below -60 dBFS and the dry mix AUDIBLE above -45: a
+#    processor never makes programme 15 dB quieter, and pure digital silence from
+#    a stopped processor is far below both.
+#  * The return lags the dry mix by processor.delayMs, so the tick keeps the dry
+#    verdicts of the last few seconds and compares the return's silence with the
+#    dry mix at the same moment, widened by a second each side so a delay setting
+#    that is a little off cannot pair a dry gap with a wet one. Every dry sample
+#    in that window must be audible: one quiet one (a song's own gap) and the
+#    return's silence is the programme's.
+#  * It fires after 1 s of silent return (two samples), so dead air lasts that
+#    plus the return's own lag, about 3.5 s measured; the dry comparison is what
+#    keeps so short a window from tripping. A wider one only lengthens the dead
+#    air: 2 s measured 5 s.
+#  * It clears after 2 s of audible return, so a processor that sputters back
+#    does not flap the air.
+processor_silent_db = -60.
+processor_audible_db = -45.
+processor_tick_s = 0.5
+processor_silent_after_s = 1.
+processor_clear_after_s = 2.
+processor_dry_history = ref([])
+processor_wet_silent_for = ref(0.)
+processor_wet_audible_for = ref(0.)
+
+# True when every dry verdict from (delay - 1 s) to (delay + window + 1 s) ago
+# was audible. False while the history is too short to cover it.
+def processor_dry_audible_when_return_was() =
+  delay_s = float_of_int(processor_delay_ms()) / 1000.
+  first = int_of_float(max(0., delay_s - 1.) / processor_tick_s)
+  last = int_of_float((delay_s + processor_silent_after_s + 1.) / processor_tick_s)
+  hist = processor_dry_history()
+  if list.length(hist) <= last then
+    false
+  else
+    window = list.prefix(last + 1, hist)
+    aligned = list.mapi(fun (i, v) -> if i >= first then v else true end, window)
+    list.for_all(fun (v) -> v, aligned)
+  end
+end
+
 radio =
   if processor_active then
     processor_pcm = %ffmpeg(format="s16le", %audio(codec="pcm_s16le", ac=2, ar=44100))
+    dry = rms(id="processor_dry_level", duration=0.5, radio)
     processor_send = output.srt(
       id="processor_send",
       mode="caller",
@@ -2518,7 +2572,7 @@ radio =
       fallible=true,
       start=false,
       processor_pcm,
-      radio
+      dry
     )
     processor_output_start := fun () -> processor_send.start()
     processor_output_stop := fun () -> processor_send.stop()
@@ -2534,23 +2588,67 @@ radio =
     # (~0.2 s, measured in Docker) and flapped to the dry mix and back several
     # times a minute. Listeners sit bufferSeconds behind anyway, so the cost
     # is only a larger processor.delayMs.
+    # limit=1.001: buffer.adaptative plays at (smoothed fill / prebuffer), so
+    # the stock 1.25 let ordinary arrival jitter swing the pitch by up to 25%,
+    # heard on air as the audio pitching up and down. Two clocks drift by parts
+    # per million; 0.1% (about 1.7 cents) is ten times what that needs and
+    # inaudible. averaging=60 smooths the fill over a minute rather than 30 s.
+    # reset=true: without it the speed estimate is not reset after an
+    # underrun, so playback resumed slow (clamped at 1/limit) and crept back:
+    # a click, then a pitch sag, every time the buffer ran dry.
     processed = buffer.adaptative(
       id="processor_buffer",
       fallible=true,
       buffer=1.,
       max=10.,
+      limit=1.001,
+      averaging=60.,
+      reset=true,
       processor_return
     )
-    thread.run(every=0.5, fun () -> begin
+    processed_level = rms(id="processor_return_level", duration=0.5, processed)
+    # Keeps the return pulled, so measured, while the dry mix airs: without it a
+    # silent verdict could never see the processor come back.
+    output.dummy(id="processor_return_meter", fallible=true, processed_level)
+    processed_gated = source.available(processed_level, {not processor_return_silent()})
+    thread.run(every=processor_tick_s, fun () -> begin
       try
-        now_on = source.is_ready(processed)
-        if now_on != processor_on_air() then
+        arriving = source.is_ready(processed)
+        dry_audible = dB_of_lin(dry.rms()) > processor_audible_db
+        processor_dry_history := list.prefix(64, [dry_audible, ...processor_dry_history()])
+        if not arriving then
+          processor_wet_silent_for := 0.
+          processor_wet_audible_for := 0.
+        elsif dB_of_lin(processed_level.rms()) < processor_silent_db then
+          processor_wet_silent_for := processor_wet_silent_for() + processor_tick_s
+          processor_wet_audible_for := 0.
+        else
+          processor_wet_audible_for := processor_wet_audible_for() + processor_tick_s
+          processor_wet_silent_for := 0.
+        end
+        if
+          not processor_return_silent()
+          and processor_wet_silent_for() >= processor_silent_after_s
+          and processor_dry_audible_when_return_was()
+        then
+          processor_return_silent := true
+        elsif
+          processor_return_silent() and processor_wet_audible_for() >= processor_clear_after_s
+        then
+          processor_return_silent := false
+        end
+        now_on = arriving and not processor_return_silent()
+        reason = if now_on then "" elsif not arriving then "lost" else "silent" end
+        if now_on != processor_on_air() or reason != processor_reason() then
           processor_on_air := now_on
+          processor_reason := reason
           processor_since := time()
           if now_on then
             log(label="processor", "processed return on air")
-          else
+          elsif reason == "lost" then
             log(label="processor", "processed return lost: airing the dry mix")
+          else
+            log(label="processor", "processed return silent while the dry mix is not: airing the dry mix")
           end
           write_processor_marker()
         elsif time() - processor_marker_at() >= 15. then
@@ -2561,7 +2659,7 @@ radio =
       end
     end)
     log(label="processor", "external processor stage built: send #{processor_host()}:#{processor_send_port()}, return #{processor_host()}:#{processor_return_port()}, delay #{processor_delay_ms()} ms")
-    fallback(id="processor_fallback", track_sensitive=false, [processed, radio])
+    fallback(id="processor_fallback", track_sensitive=false, [processed_gated, dry])
   else
     radio
   end

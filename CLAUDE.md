@@ -67,7 +67,7 @@ The pieces are Broadcast (Icecast + Liquidsoap), Controller (Express, ESM, TypeS
 - `voice-playing.json`: a spoken clip started, which is what makes air-time stamps real (#1382).
 - `pause-talk-playing.json` → `pause-talk-voice-accepted.json` → `pause-talk-voice-started.json`: the ordered pause-and-talk handshake that makes a controller-only restart exactly-once.
 - `music-starved.json`: the dead-air guard's state, with a heartbeat. Surfaced as `musicStarved` on `GET /state`.
-- `processor-status.json`: the external processor's state (built, `processed` or `dry` on air, the running delay), with a heartbeat. Read by `broadcast/processor-status.ts`.
+- `processor-status.json`: the external processor's state (built, `processed` or `dry` on air, why dry: `lost` or `silent`, the running delay), with a heartbeat. Read by `broadcast/processor-status.ts`.
 
 **Controller → browsers** is HTTP: `web/hooks/useStationFeed.ts` polls `/now-playing`, `/state` and `/session` every 5 s. **Browsers → Icecast** is a direct `<audio>` on `/stream.mp3`, which must always be served (Sonos, hardware radios, cars, older Safari); `web/CLAUDE.md` has the Opus upgrade rules.
 
