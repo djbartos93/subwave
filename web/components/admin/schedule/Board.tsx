@@ -522,6 +522,7 @@ function DayColumn({
                 runKey={key}
                 block={b}
                 name={showById(b.showId)?.name ?? 'unknown show'}
+                clocked={showById(b.showId)?.clocked === true}
                 color={colorOf(b.showId)}
                 density={density}
                 hourPx={hourPx}
@@ -604,12 +605,13 @@ function FoldedRail({
 // per step would remount the handle holding the pointer capture and kill the
 // gesture.
 function BoardCard({
-  runKey, block, name, color, density, hourPx, previewing, dragOriginStart, runDragging,
+  runKey, block, name, clocked, color, density, hourPx, previewing, dragOriginStart, runDragging,
   onPick, onRemove, onResize, onDropShow, onRunNudge,
 }: {
   runKey: string;
   block: Block;
   name: string;
+  clocked: boolean;
   color: string;
   density: BoardDensity;
   hourPx: number;
@@ -737,6 +739,14 @@ function BoardCard({
       >
         <span className="max-w-full overflow-hidden pr-4 font-mono text-[10.5px] leading-[1.2] font-bold tracking-[0.03em] text-ellipsis whitespace-nowrap uppercase">
           {name}
+          {clocked && (
+            <abbr
+              title="Runs on a format clock"
+              className="ml-1.5 border border-current px-[3px] text-[8px] font-bold tracking-[0.08em] no-underline opacity-80"
+            >
+              FC
+            </abbr>
+          )}
         </span>
         {showRange && (
           <span className="font-mono text-[9px] tracking-[0.06em] whitespace-nowrap opacity-70">

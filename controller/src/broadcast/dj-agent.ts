@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import * as settings from '../settings.js';
+import { capSelectionMax } from './format-clock-ownership-policy.js';
 import { episodeUnderSteer, withSteer } from '../music/steer.js';
 import { steerClause } from '../schemas/steer.js';
 import * as session from './session.js';
@@ -279,7 +280,7 @@ async function steerAwayCandidates<T>(
 // Build the exact discovery scope used by a live next-track pick. Diagnostics
 // call this too, so a tool run sees the same recency, show and playlist policy
 // as the DJ rather than a convenient-but-different approximation.
-export async function livePickerScope(queue: any, { audioWaypoint = null, showAt = null, context = null }: { audioWaypoint?: number[] | null; showAt?: Date | null; context?: any } = {}) {
+export async function livePickerScope(queue: any, { audioWaypoint = null, showAt = null, context = null, maxSongSec = null }: { audioWaypoint?: number[] | null; showAt?: Date | null; context?: any; maxSongSec?: number | null } = {}) {
   const preparedContext = context ? await prepareEpisodeContext(context) : null;
   // A steered playlist sets the prepared episode aside, with its brief.
   const { episodeSource, context: pickContext } = preparedContext
@@ -367,7 +368,10 @@ export async function livePickerScope(queue: any, { audioWaypoint = null, showAt
   // the pickerScope call below because the guard counts the rotation this floor
   // has already thinned; the scope reads the same value further down.
   const minTrackSec = settings.effectiveMinTrackSec(activeShow);
-  const maxTrackSec = settings.effectiveTrackLengthLimits(activeShow).selectionMaxSec;
+  // A format clock's fit cap (broadcast/format-clock.ts) tightens this one pick's
+  // selection ceiling; it is never stored, so the drain's own judgment of the
+  // item is unchanged.
+  const maxTrackSec = capSelectionMax(settings.effectiveTrackLengthLimits(activeShow).selectionMaxSec, maxSongSec);
 
   // Count-based HARD no-repeat guard: the last N distinct plays can't re-air,
   // and (unlike recentIds/recentKeys above) this survives the tool-level
@@ -577,9 +581,9 @@ export function shouldExplore({ inRun, audioWaypoint, strictPlaylist }: {
 // `health` is written by reference: `modelFailed` means the slot was filled
 // WITHOUT the model (a Shortlist whose call failed takes its own top track), so
 // the caller counts a breaker failure even though a track was queued.
-async function pickViaSelectionRoute(queue, ctx, { wantLink, audioWaypoint = null, pickAnchor = null, predecessor, showAt = null, rankTarget = null, editorialLeanings, explore = false, health = { modelFailed: false } }: { wantLink: boolean; audioWaypoint?: number[] | null; pickAnchor?: any; predecessor?: ReturnType<typeof predecessorContext>; showAt?: Date | null; rankTarget?: { bpm: number | null; key: string | null } | null; editorialLeanings: EditorialLeaningsContext; explore?: boolean; health?: { modelFailed: boolean } }): Promise<boolean> {
+async function pickViaSelectionRoute(queue, ctx, { wantLink, audioWaypoint = null, pickAnchor = null, predecessor, showAt = null, rankTarget = null, editorialLeanings, explore = false, health = { modelFailed: false }, maxSongSec = null }: { maxSongSec?: number | null; wantLink: boolean; audioWaypoint?: number[] | null; pickAnchor?: any; predecessor?: ReturnType<typeof predecessorContext>; showAt?: Date | null; rankTarget?: { bpm: number | null; key: string | null } | null; editorialLeanings: EditorialLeaningsContext; explore?: boolean; health?: { modelFailed: boolean } }): Promise<boolean> {
   const pickStarted = performance.now();
-  const { scope, playlistTracks, activeShow, episodeSource, context: pickContext } = await livePickerScope(queue, { audioWaypoint, showAt, context: ctx });
+  const { scope, playlistTracks, activeShow, episodeSource, context: pickContext } = await livePickerScope(queue, { audioWaypoint, showAt, context: ctx, maxSongSec });
   // livePickerScope prepared the episode context (#1802). Every later use in
   // this pick, the link writer and the pool rescue included, must see that
   // prepared copy, not the raw one this function was handed.
@@ -933,7 +937,7 @@ async function pickViaSelectionRoute(queue, ctx, { wantLink, audioWaypoint = nul
     repick: guardRepick,
     poolRescue: (avoidArtist, avoidAnchorArtist) => pickViaPool(
       queue, ctx, { wantLink, pickAnchor, showAt }, rankTarget, audioWaypoint,
-      { avoidArtist, avoidAnchorArtist },
+      { avoidArtist, avoidAnchorArtist, maxSongSec },
     ),
     log: (line) => queue.log('picker', line),
     logEvent,
@@ -1315,7 +1319,7 @@ function boundarySpeechContext(ctx: any, boundaryAt: unknown) {
 // answer sends the guard back to its own same-artist pick, and only 'empty'
 // means the pool truly held no other artist — the relaxation event says which
 // (#1187).
-async function pickViaPool(queue, ctx, { wantLink, pickAnchor, showAt = null }: { wantLink: boolean; pickAnchor?: any; showAt?: Date | null }, rankTarget: { bpm: number | null; key: string | null } | null = null, audioWaypoint: number[] | null = null, opts: { avoidArtist?: string | null; avoidAnchorArtist?: string | null } = {}): Promise<'queued' | 'empty' | 'collision'> {
+async function pickViaPool(queue, ctx, { wantLink, pickAnchor, showAt = null }: { wantLink: boolean; pickAnchor?: any; showAt?: Date | null }, rankTarget: { bpm: number | null; key: string | null } | null = null, audioWaypoint: number[] | null = null, opts: { avoidArtist?: string | null; avoidAnchorArtist?: string | null; maxSongSec?: number | null } = {}): Promise<'queued' | 'empty' | 'collision'> {
   // A DJ-mode mini-run (feature 4) anchors the pool re-rank to the run's
   // tempo/key target instead of the pick-cycle anchor. null → today's behaviour.
   // A sonic journey (Phase 2) additionally anchors the audio-KNN source to the
@@ -1546,8 +1550,10 @@ export function effectEventClause(historyNote = ''): string {
 // its context. Omitted means the cycle anchors to queue.current/history.
 // Resolves 'capped' when the hard cap stood the pick down, so the queue can
 // report the coast handover (#1992); undefined on every other path.
-export async function runTrackEvent(queue, ctx, { wantLink, showAt = null, pickAnchor = null, anchorPrior = null }: {
+export async function runTrackEvent(queue, ctx, { wantLink, showAt = null, pickAnchor = null, anchorPrior = null, maxSongSec = null }: {
   wantLink: boolean;
+  /** A format clock's per-pick length cap in seconds; null = none. */
+  maxSongSec?: number | null;
   showAt?: Date | null;
   pickAnchor?: any | null;
   anchorPrior?: any | null;
@@ -1706,7 +1712,7 @@ export async function runTrackEvent(queue, ctx, { wantLink, showAt = null, pickA
       try {
         const health = { modelFailed: false };
         const queued = await pickViaSelectionRoute(queue, ctx, {
-          wantLink, audioWaypoint, pickAnchor, predecessor, showAt, rankTarget, editorialLeanings, explore, health,
+          wantLink, audioWaypoint, pickAnchor, predecessor, showAt, rankTarget, editorialLeanings, explore, health, maxSongSec,
         });
         // A Shortlist whose model call failed still fills the slot from its own
         // list, but the failure counts: the breaker exists to notice a model
@@ -1737,7 +1743,7 @@ export async function runTrackEvent(queue, ctx, { wantLink, showAt = null, pickA
         }
       }
     }
-    await pickViaPool(queue, ctx, { wantLink, pickAnchor, showAt }, rankTarget, audioWaypoint);
+    await pickViaPool(queue, ctx, { wantLink, pickAnchor, showAt }, rankTarget, audioWaypoint, { maxSongSec });
   });
 }
 

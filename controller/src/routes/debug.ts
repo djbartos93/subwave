@@ -33,6 +33,7 @@ import { voiceStatus } from '../broadcast/voice-policy.js';
 import { clockStatus } from '../broadcast/clock-policy.js';
 import { talkAirStatus } from '../broadcast/talk-air.js';
 import { jingleRotateStatus } from '../broadcast/jingle-rotate.js';
+import { formatClockStatus } from '../broadcast/format-clock.js';
 import { LIQ_JINGLE_RATIO_PATH } from '../settings/liquidsoap.js';
 import { handoverStatus } from '../broadcast/handover-policy.js';
 import * as requestLog from '../broadcast/request-log.js';
@@ -398,6 +399,9 @@ async function buildDebugSnapshot(req: express.Request): Promise<any> {
         return jingleRotateStatus(settings.get(), queue.rotateJingleTracksSince(), onDisk);
       } catch (err: any) { return { error: err.message }; }
     })(),
+    // Who owns the talk under a format clock, and its last decision per boundary
+    // (clock name, song of the hour, step x of y, note). Admin only.
+    formatClock: (() => { try { return formatClockStatus(); } catch (err: any) { return { error: err.message }; } })(),
     // Programme-outro timing. Persona handoffs themselves are armed from the
     // final outgoing track and expose their live state through the session.
     handover: (() => {

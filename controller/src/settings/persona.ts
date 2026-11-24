@@ -310,6 +310,9 @@ function resolveShowShape(show, s) {
     // them here is the #779 no-op again.
     allowedJingles: Array.isArray(show.allowedJingles) ? show.allowedJingles.filter((v: unknown) => typeof v === 'string') : [],
     allowedBeds: Array.isArray(show.allowedBeds) ? show.allowedBeds.filter((v: unknown) => typeof v === 'string') : [],
+    // The format clock (settings.formatClocks), read off the RESOLVED show by
+    // broadcast/format-clock.ts, so omitting it here is the #779 no-op again.
+    formatClockId: typeof show.formatClockId === 'string' && show.formatClockId ? show.formatClockId : null,
     // Empty string means "fall back to the station-wide default". The route
     // layer is responsible for resolving an empty/stale id against the live
     // theme registry; we just surface what the show declares.

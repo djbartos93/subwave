@@ -54,6 +54,8 @@ import { VERBATIM_META } from './prompt-memory.js';
 import { scheduledTalkAir, talkOnlyBetweenTracks, withTalkAir } from './talk-air.js';
 import { mayReplacePendingTalk, type PendingTalk } from './queue/kinds.js';
 import { talkTickPlan, type TalkAir, type TalkKind, type TalkPlan } from './talk-scheduler.js';
+import { formatClockOwnsTalk, registerSeamRunners } from './format-clock.js';
+import { formatClockStandsDown, skillCronStandsDownForClock } from './format-clock-ownership-policy.js';
 import { djCallsAllowed } from './listeners.js';
 import { autoVoiceAllowed } from './voice-policy.js';
 import { optionalSegmentsAllowed } from './dj-budget.js';
@@ -998,7 +1000,11 @@ function stationIdDeps() {
 type StationIdDeps = ReturnType<typeof stationIdDeps>;
 
 export function createStationIdRunner(deps: () => StationIdDeps = stationIdDeps) {
-  return async function runStationId({ atNextTrack = false, automatic = false } = {}) {
+  // `formatClock` is the format clock's ident (broadcast/format-clock.ts): it
+  // always writes a fresh line with the model, bypassing the persona's verbatim
+  // ident lines, because the clock asks for a legal-style ID that names the
+  // station and, at the hour seam, the top of the hour.
+  return async function runStationId({ atNextTrack = false, automatic = false, formatClock = null }: { atNextTrack?: boolean; automatic?: boolean; formatClock?: { topOfHour: boolean } | null } = {}) {
     const d = deps();
     return d.withTrace({ kind: 'station-id' }, async () => {
       let speaker = d.settings.pickOnAirSpeaker();
@@ -1013,7 +1019,7 @@ export function createStationIdRunner(deps: () => StationIdDeps = stationIdDeps)
       // offered, so the drift guard has nothing to refuse.
       // It needs no model, so it leaves before the context is fetched: a slow
       // or unreachable weather or music server never delays it.
-      if (d.pickStationId.hasLines(speaker)) {
+      if (!formatClock && d.pickStationId.hasLines(speaker)) {
         const script = d.pickStationId(speaker)!;
         const opts = {
           persona: speaker, daypart: null, noClockClaim: true, hostSpeech: speechOwner.hostSpeech,
@@ -1036,6 +1042,7 @@ export function createStationIdRunner(deps: () => StationIdDeps = stationIdDeps)
         context: ctx,
         recentOpeners: d.queue.getRecentOpeners(),
         persona: speaker,
+        ...(formatClock ? { formatClock } : {}),
       });
       const opts = { persona: speaker, daypart, hostSpeech: speechOwner.hostSpeech, meta: { personaId: speaker?.id, personaName: speaker?.name } };
       if (atNextTrack) {
@@ -1049,6 +1056,37 @@ export function createStationIdRunner(deps: () => StationIdDeps = stationIdDeps)
 }
 
 export const runStationId = createStationIdRunner();
+
+// The format clock's two generated breaks, registered with it at start
+// (broadcast/format-clock.ts imports no scheduler). Both gate BEFORE generating,
+// like the rows they stand in for, but skip the frequency ladder: the clock
+// decided this seam. Both air at the next track boundary.
+async function runFormatStationId({ topOfHour }: { topOfHour: boolean }) {
+  if (!autoVoiceAllowed() || !djCallsAllowed() || !optionalSegmentsAllowed()) return null;
+  return withTalkAir('next-track', () => runStationId({ atNextTrack: true, automatic: true, formatClock: { topOfHour } }));
+}
+
+async function runFormatSegment(skill: string) {
+  if (!autoVoiceAllowed() || !djCallsAllowed() || !optionalSegmentsAllowed()) return null;
+  const cap = loadedCapabilities().find(c => c.skill === skill || c.kind === skill);
+  if (!cap) {
+    queue.log('scheduler', `[format-clock] segment "${skill}" skipped — no such skill`);
+    return null;
+  }
+  const now = new Date();
+  const { host, guests } = settings.getOnAirRoster(now);
+  const eligible = skillCronEligibility(
+    cap, settings.get().skills?.enabled || {}, host, guests, preparationSkillAt(await getFullContext()),
+  );
+  if (!eligible.allowed) {
+    queue.log('scheduler', `[format-clock] segment "${skill}" skipped — ${eligible.reason}`);
+    return null;
+  }
+  return withTalkAir('next-track', () => withTrace({ kind: 'segment' }, async () => {
+    const ctx = await prepareEpisodeContext(await getFullContext());
+    return runCapability(cap.kind, ctx, { automaticHostSpeech: true });
+  }));
+}
 
 // TALK TICK — the one cron owning every spoken segment the station produces on
 // its own. They compete for the listener's ear, so they are rows in one table
@@ -1101,7 +1139,12 @@ function markRolledPosition(position = currentStationPosition()) {
 
 // Whether a row due this minute may fire. The live gates, still owned by their
 // own modules; resolved lazily by the planner for open, unfired rows only.
-function talkEligible(kind: TalkKind, now: Date, rolled: SessionRoll | null): boolean {
+export function talkEligible(kind: TalkKind, now: Date, rolled: SessionRoll | null): boolean {
+  // The one stand-down for a format clock: while the show on air runs one, it
+  // owns the hour's talk and imaging (broadcast/format-clock.ts), so every
+  // automatic row yields here, before any row's own gate. The session roll is
+  // not a row and still runs; manual triggers never pass this function.
+  if (formatClockStandsDown(kind, formatClockOwnsTalk(now))) return false;
   if (kind === 'hourly') {
     // A programme intro owns the top of the show's first hour, so the generic
     // time check stands down once it aired (#310). suppressHourly is asked
@@ -1478,6 +1521,8 @@ export interface SkillCronGates {
   programmeOnAir: boolean;
   djCallsAllowed: boolean;
   optionalSegmentsAllowed: boolean;
+  /** A format clock owns the on-air show's talk; its segment steps name skills. */
+  formatClockOwns?: boolean;
 }
 
 // Which gate closed, or null when the cron may fire. Separate from the boolean
@@ -1486,6 +1531,7 @@ export interface SkillCronGates {
 export function skillCronStandDownReason(gates: SkillCronGates): string | null {
   if (!gates.voiceAllowed) return 'the station voice is off (music only)';
   if (gates.programmeOnAir) return 'a programme episode is on air';
+  if (skillCronStandsDownForClock(gates.formatClockOwns === true)) return 'a format clock owns the talk';
   if (!gates.djCallsAllowed) return 'nobody is listening';
   if (!gates.optionalSegmentsAllowed) return 'the daily token budget is spent';
   return null;
@@ -1587,6 +1633,7 @@ export function syncSkillCrons() {
           programmeOnAir: programme.onAir(),      // a programme episode owns its talk moments
           djCallsAllowed: djCallsAllowed(),        // nobody listening
           optionalSegmentsAllowed: optionalSegmentsAllowed(), // over the daily token budget
+          formatClockOwns: formatClockOwnsTalk(),  // the on-air show runs a format clock
         });
         if (gated) {
           queue.log('scheduler', `[skills] cron "${cap.kind}" stood down — ${gated}`);
@@ -1721,6 +1768,8 @@ export function startScheduler() {
   // Every spoken segment the station produces on its own, plus the
   // unconditional station-hour session roll: one tick over one slot table (#1500).
   cron.schedule('* * * * *', talkTick);
+  // The format clock's generated breaks (broadcast/format-clock.ts).
+  registerSeamRunners({ stationId: runFormatStationId, segment: runFormatSegment });
 
   cron.schedule('*/5 * * * *', overrideJanitor);
   cron.schedule('*/5 * * * *', steerJanitor);

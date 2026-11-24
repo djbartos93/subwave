@@ -30,6 +30,13 @@ import {
 } from '../schemas/show.js';
 import { resolveShowIds } from '../schemas/show-server.js';
 import {
+  FORMAT_CLOCKS_LIMIT,
+  formatClockSchema,
+  repairFormatClockForLoad,
+  type FormatClockParsed,
+} from '../schemas/format-clock.js';
+import { resolveFormatClockIds } from '../schemas/format-clock-server.js';
+import {
   DUCK_DEPTH_BOUNDS,
   HANDOVER_OFFSET_BOUNDS,
   HANDOVER_OFFSET_STEP_MINUTES,
@@ -252,7 +259,23 @@ export function normalizeDjPrompts(raw: unknown): DjPromptEntry[] {
   return resolveDjPromptIds(out) as DjPromptEntry[];
 }
 
-export function normalizeShows(raw: unknown, personaIds: string[]): NormalizedShow[] {
+// Lenient load path for the format clock list: a row that still fails the
+// shared schema after the per-field repairs (no name, no song step) is dropped,
+// never fatal, and the same id minting the strict path runs applies.
+export function normalizeFormatClocks(raw: unknown): (FormatClockParsed & { id: string })[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: FormatClockParsed[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const parsed = formatClockSchema.safeParse(repairFormatClockForLoad(item as Record<string, unknown>));
+    if (!parsed.success) continue;
+    rows.push(parsed.data);
+    if (rows.length >= FORMAT_CLOCKS_LIMIT) break;
+  }
+  return resolveFormatClockIds(rows);
+}
+
+export function normalizeShows(raw: unknown, personaIds: string[], formatClockIds: string[] | null = null): NormalizedShow[] {
   if (!Array.isArray(raw)) return [];
   // The SAME schema update() enforces, given a context that says which rules
   // this caller is in a position to check. All three nulls are deliberate and
@@ -266,6 +289,7 @@ export function normalizeShows(raw: unknown, personaIds: string[]): NormalizedSh
     moodNames: null,
     themeIds: null,
     minTrackSeconds: null,
+    formatClockIds,
   };
   const schema = showSchema(ctx);
   const rows: ShowParsed[] = [];
@@ -284,7 +308,7 @@ export function normalizeShows(raw: unknown, personaIds: string[]): NormalizedSh
     // schema's own ceilings. Clamp rather than reject: an out-of-range cap or
     // floor from a hand-edited file should bound the show, not delete it.
     const parsed = schema.safeParse({
-      ...repairShowForLoad(migrated, personaIds),
+      ...repairShowForLoad(migrated, personaIds, formatClockIds),
       maxTrackSeconds: coerceMaxTrackSeconds(migrated.maxTrackSeconds, true),
       minTrackLengthSeconds: coerceMinTrackLengthSeconds(migrated.minTrackLengthSeconds, true),
     });

@@ -209,7 +209,10 @@ export async function generateIntro({ track, context, requestedBy = null, reques
   });
 }
 
-export function stationIdPrompt({ context = null, persona = null }: any = {}) {
+// `formatClock` is the format clock's ident (broadcast/format-clock.ts): a legal-
+// style station ID that names the station plainly, and at the hour seam says it
+// is the top of the hour (the words only: the exact time is never offered).
+export function stationIdPrompt({ context = null, persona = null, formatClock = null }: any = {}) {
   const speaker = persona || settings.getEffectivePersona();
   const djName = speaker?.name || 'your host';
   const stationName = settings.get().station;
@@ -238,15 +241,22 @@ export function stationIdPrompt({ context = null, persona = null }: any = {}) {
   const handoverNudge = nextShow
     ? ` ${String(handover.nextShow.presenter).trim()} presents the next scheduled show, "${String(handover.nextShow.name).trim()}". If natural, give it one brief nod; never describe it as your own show, make it a required signpost, or explain the schedule.`
     : '';
+  if (formatClock) {
+    const top = formatClock.topOfHour
+      ? ' This airs at the top of the hour: say that it is the top of the hour, in those words, and never the hour or the minutes.'
+      : '';
+    ctxLines.push(`Task: ${lengthPhrase('stationId', speaker)}, a legal-style station ID. Say the station name, ${stationName}, plainly and clearly, in character as ${djName}.${top} No call to action, no banter.${clockNudge}${handoverNudge}`);
+    return ctxLines.join('\n');
+  }
   ctxLines.push(`Task: ${lengthPhrase('stationId', speaker)} for ${stationName} with ${djName}. A little understated.${clockNudge}${handoverNudge}`);
   return ctxLines.join('\n');
 }
 
-export async function generateStationId({ recap = null, context = null, recentOpeners = null, persona = null }: any = {}) {
+export async function generateStationId({ recap = null, context = null, recentOpeners = null, persona = null, formatClock = null }: any = {}) {
   const speaker = persona || settings.getEffectivePersona();
   return djText({
     system: djSystem(speaker),
-    prompt: decoratePrompt(stationIdPrompt({ context, persona: speaker }), { kind: 'station_id', recap, recentOpeners }),
+    prompt: decoratePrompt(stationIdPrompt({ context, persona: speaker, formatClock }), { kind: 'station_id', recap, recentOpeners }),
     temperature: 1.0, topP: 0.9, repeatPenalty: 1.25, seed: randomSeed(),
     kind: 'generateStationId',
   });

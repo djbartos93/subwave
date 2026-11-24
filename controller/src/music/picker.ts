@@ -12,6 +12,7 @@ import * as dj from '../llm/dj.js';
 import { nearestId } from '../llm/sdk.js';
 import { logEvent } from '../observability/events.js';
 import * as settings from '../settings.js';
+import { capSelectionMax } from '../broadcast/format-clock-ownership-policy.js';
 import { bpmCompat, keyCompat } from './mix.js';
 import { shuffle } from '../util/shuffle.js';
 import { mapPool } from '../util/async-pool.js';
@@ -642,7 +643,7 @@ function slimAlbum(album: string | null | undefined, title: string | null | unde
 // Build a candidate pool, ask the LLM to choose one; null when it can't.
 // Guard-rescue artist exclusions (#1187) hold through the whole starvation
 // cascade. Preserve the anchor as well as the rejected credit.
-export async function pickViaPool(queue, ctx, rankTarget: { bpm: number | null; key: string | null } | null = null, audioWaypoint: number[] | null = null, opts: { avoidArtist?: string | null; avoidAnchorArtist?: string | null; preview?: { steer: Steer; count: number; episode?: boolean; startNow?: boolean } } = {}): Promise<any> {
+export async function pickViaPool(queue, ctx, rankTarget: { bpm: number | null; key: string | null } | null = null, audioWaypoint: number[] | null = null, opts: { avoidArtist?: string | null; avoidAnchorArtist?: string | null; maxSongSec?: number | null; preview?: { steer: Steer; count: number; episode?: boolean; startNow?: boolean } } = {}): Promise<any> {
   await library.load();
   // A preview works out a steer's opening tracks without airing anything: it
   // runs under the PROPOSED steer, writes no booth lines, charges no candidate
@@ -699,7 +700,8 @@ export async function pickViaPool(queue, ctx, rankTarget: { bpm: number | null; 
   // Minimum track length (#1573). Must resolve BEFORE the no-repeat guard
   // below, which counts the rotation this floor has already thinned.
   const minTrackSec = settings.effectiveMinTrackSec(activeShow);
-  const maxTrackSec = settings.effectiveTrackLengthLimits(activeShow).selectionMaxSec;
+  // A format clock's fit cap tightens this one pick (dj-agent.ts livePickerScope).
+  const maxTrackSec = capSelectionMax(settings.effectiveTrackLengthLimits(activeShow).selectionMaxSec, opts.maxSongSec);
   // Count-based hard no-repeat guard (last N distinct plays), non-relaxable. A
   // resolved strict playlist clamps to its own post-exclusion identity count;
   // soft/unresolved anchors stay library-scoped. Mirrors the agent.

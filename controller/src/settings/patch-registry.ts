@@ -90,6 +90,7 @@ import { scheduleOverrideSchema, scheduleSchema } from '../schemas/schedule.js';
 import { SHOW_MAX_TRACK_SECONDS, showsSchema } from '../schemas/show.js';
 import { steerSchema } from '../schemas/steer.js';
 import { webhooksSchema } from '../schemas/webhook.js';
+import { formatClocksSchema } from '../schemas/format-clock.js';
 
 // Mirrors settings/defaults.ts's BOUNDS.maxTrackSeconds, which reads its ceiling
 // from the same SHOW_MAX_TRACK_SECONDS — a mirrored module may not import a
@@ -149,6 +150,7 @@ export const SETTINGS_PATCH_KEYS = [
   'pauseTalkMinSeconds',
   'fadeAtShowEnd',
   'personas',
+  'formatClocks',
   'shows',
   'schedule',
   'scheduleOverride',
@@ -311,6 +313,8 @@ export const SETTINGS_PATCH_SCHEMAS: Readonly<Partial<Record<SettingsPatchKey, S
     }),
   schedule: (ctx) => scheduleSchema({ showIds: ctx.showIds }),
   webhooks: webhooksSchema,
+  // validateFormatClocksStrict roots its messages at the key already.
+  formatClocks: formatClocksSchema,
 };
 
 /** Resolve an entry against a context — a plain schema ignores it. */
@@ -398,6 +402,7 @@ const SETTINGS_PATCH_ROOTED_KEYS: ReadonlySet<string> = new Set<SettingsPatchKey
   'shows',
   'schedule',
   'webhooks',
+  'formatClocks',
 ]);
 
 /** Root the flat message at its settings key when that key needs it. */

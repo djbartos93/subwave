@@ -145,6 +145,7 @@ import {
   normalizeTtsFallback,
   normalizeSchedule,
   normalizeScheduleOverride,
+  normalizeFormatClocks,
   normalizeShows,
   normalizeSteer,
   normalizeWebhooks,
@@ -152,6 +153,7 @@ import {
 import {
   assertNoOrphanMoods,
   validateDjPromptsStrict,
+  validateFormatClocksStrict,
   validatePersonasStrict,
   validateScheduleOverrideStrict,
   validateScheduleStrict,
@@ -251,6 +253,7 @@ export {
 export {
   assertNoOrphanMoods,
   validateDjPromptsStrict,
+  validateFormatClocksStrict,
   validatePersonasStrict,
   validateShowsStrict,
 } from './settings/validate.js';
@@ -444,7 +447,8 @@ export async function load() {
   // djPrompt is always the resolved active text — see DEFAULTS.
   djPrompt = djPrompts.find(p => p.id === activeDjPromptId)?.text ?? '';
 
-  const shows = normalizeShows(stored.shows, personaIds);
+  const formatClocks = normalizeFormatClocks(stored.formatClocks);
+  const shows = normalizeShows(stored.shows, personaIds, formatClocks.map(c => c.id));
   const schedule = normalizeSchedule(
     stored.schedule,
     shows.map(s => s.id),
@@ -830,6 +834,7 @@ export async function load() {
     },
     personas,
     activePersonaId,
+    formatClocks,
     shows,
     schedule,
     scheduleOverride,
@@ -1877,12 +1882,17 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
   if ('personas' in patch) {
     next.personas = validatePersonasStrict(patch.personas);
   }
+  // Before shows: a show's formatClockId is judged against the list this same
+  // patch may be replacing.
+  if ('formatClocks' in patch) {
+    next.formatClocks = validateFormatClocksStrict(patch.formatClocks);
+  }
   if ('shows' in patch) {
     // Snapshot the theme registry once so the validator can stay sync.
     // listThemes() returns built-ins + cached user themes (30 s TTL) — same
     // source the picker reads.
     const allowedThemeIds = themeIds ? new Set(themeIds) : new Set((await listThemes()).map(t => t.id));
-    next.shows = validateShowsStrict(patch.shows, next.personas, allowedThemeIds, moodNames);
+    next.shows = validateShowsStrict(patch.shows, next.personas, allowedThemeIds, moodNames, (next.formatClocks || []).map(c => c.id));
   }
   if ('schedule' in patch) {
     next.schedule = validateScheduleStrict(patch.schedule, next.shows);
@@ -2807,6 +2817,13 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
     // survives — losing a guest is not losing the show).
     for (const s of next.shows) {
       s.guestPersonaIds = coerceGuestPersonaIds(s.guestPersonaIds, s.personaId, personaIds);
+    }
+    // A deleted format clock clears the pointer on every show that used it.
+    // Like a deleted guest persona, and unlike a deleted host, losing the clock
+    // is not losing the show: it goes back to the ordinary talk rhythm.
+    const clockIds = (next.formatClocks || []).map(c => c.id);
+    for (const s of next.shows) {
+      if (s.formatClockId && !clockIds.includes(s.formatClockId)) s.formatClockId = null;
     }
     const showIds = next.shows.map(s => s.id);
     for (let d = 0; d < 7; d++) {

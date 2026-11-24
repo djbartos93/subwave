@@ -162,6 +162,7 @@ export default function ShowsPanel() {
   // identity decides whether the resolver is rebuilt.
   const personas: Persona[] = useMemo(() => data?.values?.personas || [], [data?.values?.personas]);
   const moods: string[] = useMemo(() => data?.tts?.moods || [], [data?.tts?.moods]);
+  const formatClocks = data?.values?.formatClocks ?? null;
   // The four inputs the shared show schema needs, built once so the row badges,
   // the Save gate and the editor all judge a show the way the controller will.
   const showCtx = useMemo(
@@ -169,8 +170,11 @@ export default function ShowsPanel() {
       personas, moods,
       themeIds: themes.map(t => t.id),
       minTrackSeconds: data?.values?.minTrackSeconds ?? null,
+      // null until settings load: shape-only, so a show never reads invalid
+      // just because the clock list has not arrived.
+      formatClockIds: formatClocks ? formatClocks.map(c => c.id) : null,
     }),
-    [personas, moods, themes, data?.values?.minTrackSeconds],
+    [personas, moods, themes, data?.values?.minTrackSeconds, formatClocks],
   );
   // showSchema(ctx) builds a fresh schema per call, so memoise on ctx identity.
   const formSchema = useMemo(() => showsFormSchema(showCtx), [showCtx]);
@@ -303,7 +307,7 @@ export default function ShowsPanel() {
       playlistIds: [], playlistStrict: false, playlistExhaust: false, playlistInOrder: false, excludedPlaylistIds: [], excludedAlbumKinds: [],
       excludeExplicit: false,
       programme: false, segmentSkill: '', preparationSkill: '', tags: [],
-      allowedJingles: [], allowedBeds: [], description: '',
+      allowedJingles: [], allowedBeds: [], description: '', formatClockId: null,
     });
     // errors populate only once a field is touched, so without this the new
     // row's "incomplete" badge stays silent about why.
@@ -584,6 +588,7 @@ export default function ShowsPanel() {
           moods={moods}
           themes={themes}
           skills={skills}
+          formatClocks={formatClocks ?? []}
           activeThemeId={activeThemeId}
           genres={genres}
           playlists={playlists}

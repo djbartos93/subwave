@@ -1,10 +1,11 @@
 // Fold show-boundary cuts into the existing earliest-wins cue_out alongside caps, silence
 // trim, and stem blends. Clock/key inputs keep the scan pure. #1574, #447.
 
-import { zonedParts } from '../time.js';
+import { stationHourKey, zonedParts } from '../time.js';
 import { absoluteOffsetSec } from '../music/silence-trim.js';
 import * as settings from '../settings.js';
 import { takeoverShowId } from '../schemas/schedule.js';
+import { resolveShowClock } from './format-clock-ownership-policy.js';
 
 // How far past its show's end a track may run before the cut is armed. Not an
 // operator dial: the switch means "don't spill", not "cut on the dot".
@@ -176,6 +177,38 @@ export function nextShowBoundaryMs(fromMs: number, horizonSec: number): number |
     fromMs,
     horizonMs: horizon * 1000,
     keyAt: showKeyAt,
+    minuteAt: (ms) => zonedParts(new Date(ms)).minute,
+    extra: ov ? [Number(ov.startedAt), Number(ov.expiresAt)] : [],
+  });
+}
+
+/** Whether every station hour inside the show on air at `date` is a cut point:
+ *  the show runs a format clock AND its effective fadeAtShowEnd is on (the
+ *  show's own value, null inheriting the station's). With the fade off the song
+ *  finishes and the hour seam runs, so nothing here applies. */
+export function hourlyCutsActive(date = new Date()): boolean {
+  const show = settings.resolveActiveShow(date);
+  if (!show || resolveShowClock(show, settings.get()?.formatClocks) === null) return false;
+  return settings.effectiveFadeAtShowEnd(show);
+}
+
+/**
+ * The next instant the track starting at `fromMs` must be cut for: a show
+ * change (nextShowBoundaryMs) or, for a format-clock show with the fade on,
+ * the next station :00 as well, "exactly like a show change". Only the drain's
+ * cut reads this. The pick look-ahead and the handoff arming keep
+ * nextShowBoundaryMs, because an hour seam inside one show is not a show change
+ * and must never arm a handoff or move a pick's show.
+ */
+export function nextCutBoundaryMs(fromMs: number, horizonSec: number): number | null {
+  if (!hourlyCutsActive(new Date(fromMs))) return nextShowBoundaryMs(fromMs, horizonSec);
+  const horizon = Math.min(Math.max(0, horizonSec), BOUNDARY_MAX_HORIZON_SEC);
+  if (!(horizon > 0)) return null;
+  const ov = settings.get()?.scheduleOverride;
+  return nextShowChangeMs({
+    fromMs,
+    horizonMs: horizon * 1000,
+    keyAt: (ms) => `${showKeyAt(ms)}@${stationHourKey(new Date(ms))}`,
     minuteAt: (ms) => zonedParts(new Date(ms)).minute,
     extra: ov ? [Number(ov.startedAt), Number(ov.expiresAt)] : [],
   });

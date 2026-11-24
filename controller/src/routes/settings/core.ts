@@ -141,6 +141,9 @@ router.get('/settings', requireAdmin, async (req, res) => {
         personas: s.personas,
         activePersonaId: s.activePersonaId,
         shows: s.shows,
+        // The format clocks shows can run (broadcast/format-clock.ts). The
+        // manager saves the whole list, so it must read the whole list here.
+        formatClocks: s.formatClocks,
         schedule: s.schedule,
         djTalkOnlyBetweenTracks: s.djTalkOnlyBetweenTracks,
         pauseTalkMinSeconds: s.pauseTalkMinSeconds,

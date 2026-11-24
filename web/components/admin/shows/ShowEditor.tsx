@@ -53,6 +53,7 @@ import {
   resolveEraDraft,
   sameEra,
 } from './types';
+import type { FormatClock } from '@/lib/schemas.generated';
 import type { EraWindow, Persona, PlaylistIndexStatus, Show, ShowsFormValues, SkillOption, ThemeOption } from './types';
 import { hasAnyMusicFilter, showPayload } from './lib';
 import { SHOW_IMAGING_ALLOWLIST_MAX } from '@/lib/schemas.generated';
@@ -60,6 +61,9 @@ import { ChipRow } from './ChipRow';
 import { PlaylistPosition } from './PlaylistPosition';
 import { displayedMatchingTracks, type CandidateDiagnostic } from './candidate-diagnostic';
 import { fetchShowCandidates, useShowBlocklistQuery } from './queries';
+
+// Radix Select forbids an empty-string item, so "no clock" travels as this.
+const NO_CLOCK = '__no_clock__';
 
 // Operator-facing labels for the developer-facing schema keys.
 const FIELD_LABELS: Record<string, string> = {
@@ -77,6 +81,7 @@ const FIELD_LABELS: Record<string, string> = {
   allowedJingles: 'jingles',
   allowedBeds: 'beds',
   description: 'listener description',
+  formatClockId: 'format clock',
 };
 
 // Some rules root on an ARRAY field (`eras.0.fromYear`), so walk down to the
@@ -107,6 +112,8 @@ interface ShowEditorProps {
   moods: string[];
   themes: ThemeOption[];
   skills: SkillOption[];
+  // Saved format clocks, for the Format clock select.
+  formatClocks: FormatClock[];
   activeThemeId: string;
   genres: string[];
   // Tags used by the OTHER shows, offered as one-click adds.
@@ -148,6 +155,7 @@ export function ShowEditor({
   moods,
   themes,
   skills,
+  formatClocks,
   activeThemeId,
   genres,
   tagSuggestions,
@@ -533,7 +541,10 @@ export function ShowEditor({
                 control={control}
                 name={path('programme')}
                 label="Programme (produced episode)"
-                description="Plan an intro, a mid-hour feature and a sign-off from this brief, with a fresh angle for each airing."
+                disabled={!!show.formatClockId}
+                description={show.formatClockId
+                  ? 'Unavailable while a format clock is selected: a clock decides when the DJ talks, a programme plans its own episode. Set Format clock to None to use it.'
+                  : 'Plan an intro, a mid-hour feature and a sign-off from this brief, with a fresh angle for each airing.'}
               />
               {show.programme && (
                 <SelectField
@@ -557,6 +568,29 @@ export function ShowEditor({
                   description="Choose the mid-hour skill or let the producer decide each episode."
                 />
               )}
+            </Field>
+          </div>
+          <div className="grid items-start gap-6 border-t border-separator-strong pt-5 xl:grid-cols-2">
+            <Field>
+              <SelectField
+                control={control}
+                name={path('formatClockId')}
+                label="Format clock"
+                emptyValue={NO_CLOCK}
+                disabled={show.programme}
+                options={[
+                  { value: NO_CLOCK, label: "None (the station's normal talk)" },
+                  ...formatClocks.map(c => ({ value: c.id, label: c.name })),
+                  ...(show.formatClockId && !formatClocks.some(c => c.id === show.formatClockId)
+                    ? [{ value: show.formatClockId, label: `${show.formatClockId} (missing)` }]
+                    : []),
+                ]}
+                description={show.programme
+                  ? 'Unavailable for a programme show: it plans its own episode. Turn Programme off to use a clock.'
+                  : formatClocks.length === 0
+                    ? 'A format clock sets when the DJ talks and imaging airs each hour. None saved yet: build one under Shows, Format clocks.'
+                    : 'Hands the hour\'s talk and imaging to a format clock. None keeps the station\'s normal talk.'}
+              />
             </Field>
           </div>
           <div className="grid items-start gap-6 border-t border-separator-strong pt-5 xl:grid-cols-2">

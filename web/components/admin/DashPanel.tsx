@@ -48,6 +48,7 @@ import { cn } from '../../lib/cn';
 import { RequestsCard } from './dash/RequestsCard';
 import { TakeoverCard } from './dash/TakeoverCard';
 import { SteerCard } from './dash/SteerCard';
+import { FormatClockNowCard } from './dash/FormatClockNowCard';
 import QueueHeldBadge from './dash/QueueHeldBadge';
 import {
   blockPlayingTrack,
@@ -828,6 +829,8 @@ export default function DashPanel() {
           <TakeoverCard tz={tz} locale={locale} />
 
           <SteerCard tz={tz} locale={locale} />
+
+          <FormatClockNowCard tz={tz} locale={locale} />
 
           <Card title="Broadcast">
             <div className="grid gap-2.5">

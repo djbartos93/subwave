@@ -98,6 +98,9 @@ export interface ShowSchemaContext {
   moodNames: string[] | null;
   themeIds: string[] | null;
   minTrackSeconds: number | null;
+  /** The format clock ids a show's `formatClockId` may name. null (or absent,
+   *  for a caller that predates the field) = cannot check: shape only. */
+  formatClockIds?: string[] | null;
 }
 
 // `=== true` rather than z.boolean(): both paths read these that way, so
@@ -473,11 +476,31 @@ function showObjectSchema(ctx: ShowSchemaContext) {
           .max(SHOW_DESCRIPTION_MAX, `description must be 0-${SHOW_DESCRIPTION_MAX} chars`)
           .default(''),
       ),
+      // The format clock (settings.formatClocks) that schedules this show's
+      // talk and imaging. null / '' / absent = none, and the show behaves as it
+      // always has. Mutually exclusive with `programme` (checked below).
+      formatClockId: z
+        .union([z.null(), z.string()])
+        .optional()
+        .transform((v) => (v == null || v.trim() === '' ? null : v.trim()))
+        .refine((v) => v == null || SHOW_ID_RE.test(v), 'must be a format clock id')
+        .refine(
+          (v) => v == null || ctx.formatClockIds == null || ctx.formatClockIds.includes(v),
+          'must reference an existing format clock',
+        ),
     })
     // Needs two fields at once, so it cannot live on guestPersonaIds.
     .check((c) => {
       if (c.value.preparationSkill && c.value.preparationSkill === c.value.segmentSkill) {
         c.issues.push({ code: 'custom', input: c.value.segmentSkill, path: ['segmentSkill'], message: 'must differ from the show preparation skill' });
+      }
+      if (c.value.programme && c.value.formatClockId) {
+        c.issues.push({
+          code: 'custom',
+          input: c.value.formatClockId,
+          path: ['formatClockId'],
+          message: 'a programme show cannot use a format clock: turn one of them off',
+        });
       }
       if (c.value.guestPersonaIds.includes(c.value.personaId)) {
         c.issues.push({
@@ -578,6 +601,7 @@ export function repairShowTags(raw: unknown): string[] | undefined {
 export function repairShowForLoad(
   raw: Record<string, unknown>,
   personaIds: string[] | null,
+  formatClockIds: string[] | null = null,
 ): Record<string, unknown> {
   const host = typeof raw.personaId === 'string' ? raw.personaId : '';
   return {
@@ -641,5 +665,13 @@ export function repairShowForLoad(
     }),
     allowedJingles: repairShowStringList(raw.allowedJingles, IMAGING_ALLOWLIST_REPAIR),
     allowedBeds: repairShowStringList(raw.allowedBeds, IMAGING_ALLOWLIST_REPAIR),
+    // A dangling id (the clock was deleted, or the file hand-edited) reads as
+    // none, and a programme show keeps its programme: v1 has no show with both.
+    formatClockId: typeof raw.formatClockId === 'string'
+      && raw.programme !== true
+      && SHOW_ID_RE.test(raw.formatClockId.trim())
+      && (formatClockIds == null || formatClockIds.includes(raw.formatClockId.trim()))
+      ? raw.formatClockId.trim()
+      : undefined,
   };
 }
