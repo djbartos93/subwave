@@ -39,6 +39,13 @@ export function dangerSavePayload(form: FormState) {
       voice: n.float('ducking.voice', form.ducking.voice),
       intro: n.float('ducking.intro', form.ducking.intro),
     },
+    processor: {
+      enabled: form.processor.enabled,
+      host: form.processor.host.trim(),
+      sendPort: n.int('processor.sendPort', form.processor.sendPort),
+      returnPort: n.int('processor.returnPort', form.processor.returnPort),
+      delayMs: n.int('processor.delayMs', form.processor.delayMs),
+    },
     maxTrackLengthMode: form.maxTrackLengthMode,
     maxTrackSeconds: n.int('maxTrackSeconds', form.maxTrackSeconds),
     fadeAtShowEnd: form.fadeAtShowEnd,

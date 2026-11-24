@@ -221,6 +221,12 @@ export function stripManagedSettings(
     ];
   stripBlock(out, 'stream', [...HOSTED_STREAM_KEYS, ...overCeiling], dropped);
   stripBlock(out, 'embedding', HOSTED_EMBEDDING_KEYS, dropped);
+  // An external processor would have the hosted mixer open SRT connections to
+  // any host the operator names: the box's network is not the operator's.
+  if ('processor' in out) {
+    delete out.processor;
+    dropped.push('processor');
+  }
   if (Array.isArray(out.personas)) {
     out.personas = out.personas.map((p: any, i: number) => {
       const { persona, changed } = hostedPersona(p, defaultEngine);

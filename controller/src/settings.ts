@@ -126,6 +126,11 @@ import {
   stripSecretControlChars,
 } from './schemas/settings.js';
 import { jinglePlacement, jingleRotateOwner, setJingleRotateOwner } from './broadcast/jingle-rotate.js';
+import {
+  normalizeProcessorSettings,
+  processorConfigIssue,
+  type ProcessorSettings,
+} from './broadcast/processor-policy.js';
 import { scheduleArmChanged } from './music/tag-schedule-policy.js';
 import { minTrackSeconds, peek, setCache } from './settings/store.js';
 import {
@@ -496,6 +501,9 @@ export async function load() {
       voice: normalizeDuckDepth(stored.ducking?.voice, DEFAULTS.ducking.voice),
       intro: normalizeDuckDepth(stored.ducking?.intro, DEFAULTS.ducking.intro),
     },
+    // Repaired field by field (broadcast/processor-policy.ts): a hand-edited
+    // value reaches radio.liq as a handoff file.
+    processor: normalizeProcessorSettings(stored.processor),
     maxTrackLengthMode: stored.maxTrackLengthMode === 'exclude' ? 'exclude' : 'cut',
     maxTrackSeconds: coerceMaxTrackSeconds(rawMaxTrackSec(stored), false) ?? DEFAULTS.maxTrackSeconds,
     // Station default for the show-boundary fade (#1574). Anything but an
@@ -1511,6 +1519,23 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
       next.ducking.intro = dk.intro;
       restart = true;
     }
+  }
+  if ('processor' in patch) {
+    const pp = parseSettingsPatchKey<Partial<ProcessorSettings>>('processor', patch.processor);
+    const merged: ProcessorSettings = { ...cur.processor };
+    for (const k of ['enabled', 'host', 'sendPort', 'returnPort', 'delayMs'] as const) {
+      if (pp[k] !== undefined) (merged as unknown as Record<string, unknown>)[k] = pp[k];
+    }
+    // Whole-block rules on the merged state: a patch may turn processing on
+    // with a host saved earlier (broadcast/processor-policy.ts).
+    const issue = processorConfigIssue(merged);
+    if (issue) throw new Error(issue);
+    // Every field is read at mixer startup, so any change is a restart. The
+    // delay too: radio.liq holds the ICY title by it.
+    for (const k of ['enabled', 'host', 'sendPort', 'returnPort', 'delayMs'] as const) {
+      if (merged[k] !== cur.processor[k]) restart = true;
+    }
+    next.processor = merged;
   }
   if ('maxTrackLengthMode' in patch) {
     next.maxTrackLengthMode = parseSettingsPatchKey('maxTrackLengthMode', patch.maxTrackLengthMode);

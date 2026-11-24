@@ -3705,6 +3705,42 @@ export const duckingPatchSchema = settingsBlockOf({
   ),
 });
 
+// External broadcast processor (processor.*, docs/external-processor.md). The
+// mixer sends its finished mix to a bridge on another machine over SRT and airs
+// what comes back. Every field is read once at mixer startup.
+export const PROCESSOR_PORT_BOUNDS: SettingsNumericBound = { min: 1, max: 65535 };
+// The measured end-to-end delay of the processed path, added to the listener
+// lead while the processed return is on air. Ten seconds is far past any real
+// processor; radio.liq re-checks the same ceiling.
+export const PROCESSOR_DELAY_MS_BOUNDS: SettingsNumericBound = { min: 0, max: 10000 };
+// A hostname, an IPv4 address or a bare IPv6 address, or empty (not set). It
+// reaches radio.liq as a one-line file, so nothing else is allowed in it.
+export const PROCESSOR_HOST_RE = /^[A-Za-z0-9._:-]{0,253}$/;
+
+export const processorPatchSchema = settingsBlockOf({
+  enabled: settingsBoolLike(),
+  host: z
+    .unknown()
+    .superRefine((raw, ctx) => {
+      if (typeof raw !== 'string' || !PROCESSOR_HOST_RE.test(raw.trim())) {
+        ctx.addIssue({ code: 'custom', message: 'processor.host must be a hostname or IP address' });
+      }
+    })
+    .transform((raw) => String(raw).trim()),
+  sendPort: settingsIntLike(
+    PROCESSOR_PORT_BOUNDS,
+    `processor.sendPort must be int in [${PROCESSOR_PORT_BOUNDS.min}, ${PROCESSOR_PORT_BOUNDS.max}]`,
+  ),
+  returnPort: settingsIntLike(
+    PROCESSOR_PORT_BOUNDS,
+    `processor.returnPort must be int in [${PROCESSOR_PORT_BOUNDS.min}, ${PROCESSOR_PORT_BOUNDS.max}]`,
+  ),
+  delayMs: settingsIntLike(
+    PROCESSOR_DELAY_MS_BOUNDS,
+    `processor.delayMs must be int in [${PROCESSOR_DELAY_MS_BOUNDS.min}, ${PROCESSOR_DELAY_MS_BOUNDS.max}]`,
+  ),
+});
+
 // Show handover timing (#1576). One field today, a block because the ordering
 // half of the handover is a placement rule with no dial — a second timing knob
 // belongs beside this one rather than as another flat top-level key.

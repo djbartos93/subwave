@@ -12,7 +12,7 @@ import { DEFAULTS } from './defaults.js';
 // Pure policy module — no settings import of its own, so this stays acyclic.
 import { mixerJingleRatioFile } from '../broadcast/jingle-rotate.js';
 // Hosted stations: the station's bitrate ceiling (SUBWAVE_MAX_BITRATE).
-import { capStreamBitrates } from '../setup/hosted.js';
+import { capStreamBitrates, isHosted } from '../setup/hosted.js';
 
 export const LIQ_JINGLE_RATIO_PATH = `${STATE_DIR}/liquidsoap_jingle_ratio.txt`;
 export const LIQ_CROSSFADE_PATH = `${STATE_DIR}/liquidsoap_crossfade.txt`;
@@ -21,6 +21,13 @@ export const LIQ_DUCK_VOICE_PATH = `${STATE_DIR}/liquidsoap_duck_voice.txt`;
 export const LIQ_DUCK_INTRO_PATH = `${STATE_DIR}/liquidsoap_duck_intro.txt`;
 // Plain crossfade curve (transitions.equalPowerCrossfade). Same read-once lifecycle.
 export const LIQ_EQUAL_POWER_CROSSFADE_PATH = `${STATE_DIR}/liquidsoap_equal_power_crossfade.txt`;
+// External processor (processor.*): radio.liq builds the SRT send/return stage
+// only when enabled with a host, and re-checks every value itself.
+export const LIQ_PROCESSOR_ENABLED_PATH = `${STATE_DIR}/liquidsoap_processor_enabled.txt`;
+export const LIQ_PROCESSOR_HOST_PATH = `${STATE_DIR}/liquidsoap_processor_host.txt`;
+export const LIQ_PROCESSOR_SEND_PORT_PATH = `${STATE_DIR}/liquidsoap_processor_send_port.txt`;
+export const LIQ_PROCESSOR_RETURN_PORT_PATH = `${STATE_DIR}/liquidsoap_processor_return_port.txt`;
+export const LIQ_PROCESSOR_DELAY_MS_PATH = `${STATE_DIR}/liquidsoap_processor_delay_ms.txt`;
 export const LIQ_ARCHIVE_ENABLED_PATH = `${STATE_DIR}/liquidsoap_archive_enabled.txt`;
 export const LIQ_ARCHIVE_BITRATE_PATH = `${STATE_DIR}/liquidsoap_archive_bitrate.txt`;
 export const LIQ_OPUS_ENABLED_PATH = `${STATE_DIR}/liquidsoap_opus_enabled.txt`;
@@ -95,6 +102,15 @@ export async function writeLiquidsoapSettings(s) {
   await writeFile(LIQ_DUCK_INTRO_PATH, String(s.ducking?.intro ?? DEFAULTS.ducking.intro));
   // Only an explicit true writes "true": absent or malformed stays linear.
   await writeFile(LIQ_EQUAL_POWER_CROSSFADE_PATH, String(s.transitions?.equalPowerCrossfade === true));
+  // Only an explicit true builds the stage: absent or malformed stays off, and
+  // a hosted station never builds it, whatever a restored settings.json holds
+  // (setup/hosted.ts drops the key from patches for the same reason).
+  const proc = s.processor ?? DEFAULTS.processor;
+  await writeFile(LIQ_PROCESSOR_ENABLED_PATH, String(proc.enabled === true && !isHosted()));
+  await writeFile(LIQ_PROCESSOR_HOST_PATH, String(proc.host ?? ''));
+  await writeFile(LIQ_PROCESSOR_SEND_PORT_PATH, String(proc.sendPort ?? DEFAULTS.processor.sendPort));
+  await writeFile(LIQ_PROCESSOR_RETURN_PORT_PATH, String(proc.returnPort ?? DEFAULTS.processor.returnPort));
+  await writeFile(LIQ_PROCESSOR_DELAY_MS_PATH, String(proc.delayMs ?? DEFAULTS.processor.delayMs));
   await writeFile(LIQ_ARCHIVE_ENABLED_PATH, s.archive.enabled ? 'true' : 'false');
   await writeFile(LIQ_ARCHIVE_BITRATE_PATH, String(s.archive.bitrate));
   // The listener-facing mounts, under a hosted station's bitrate ceiling.

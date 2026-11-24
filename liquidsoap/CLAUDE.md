@@ -12,7 +12,7 @@
 6. The dead-air guard `fallback(id="music_safety", [music, emergency])`.
 7. The studio bed `add` (off: `bed_enabled = false`).
 8. The `smooth_add` ducks: `voice_queue` (`duck_voice`), `intro_queue` (`duck_intro`), `sfx_queue`. The voice and intro chains (`edge_fade`, `liq_amplify`, `mic_chain`) are parallel inputs that join here. The intro chain's innermost stage is the over-music ID's gain gate, `amplify(override=null, intro_overlay_gain, intro_queue)`, which is 1 for every ordinary clip.
-9. `idle_gate` (silence while idle, mounts stay up), then the limiter (20:1 at −1 dBFS) and the ICY metadata strip/insert.
+9. `idle_gate` (silence while idle, mounts stay up), then the external processor stage when `processor.*` is on (SRT send of the mix, SRT return through `buffer.adaptative`, `fallback([processed, dry])`, `processor-status.json`; off builds nothing), then the limiter (20:1 at −1 dBFS) and the ICY metadata strip/insert.
 10. `make_stream_outputs()`: `/stream.mp3` always; Opus, FLAC and AAC each behind its own `liquidsoap_*_enabled.txt` (off by default); the hourly archive behind `archive_enabled` (off by default). Encoders need parse-time bitrates, so there is one branch per value in `SETTINGS_*_BITRATES` (`controller/src/schemas/settings.ts`): keep them in sync.
 
 ## Rules
@@ -65,6 +65,13 @@ Each one records a measured failure.
 
 **Outputs**
 - The Opus encoder is hard CBR (`vbr="none"`), never VBR or DTX (#2138). Icecast's `<burst-size>` is a byte count sized from the bitrate, and constrained VBR coded idle silence at 1.6 kbps, so after an idle pause a new listener's burst reached back past the pause into stale music: on the rig (Opus 96k, 22 s buffer), live music arrived 51.9 s after connecting following a 30 s pause, and 140.2 s after a 120 s one. CBR brought both to ~23 s, as MP3's. Ogg framing adds ~1%, so the burst runs a little under `bufferSeconds`. `controller/scripts/opus-cbr.test.ts` pins every branch.
+
+**External processor**
+- The stage sits after the idle gate and before the bus limiter, so the processor gets the whole mix and the limiter and ICY insert see whatever airs. The mixer is the SRT caller on both legs (no published UDP port), and both legs are headerless s16le PCM so either end can rejoin mid-stream.
+- The return's prebuffer is 1 s. At 0.3 s, ordinary ~0.2 s scheduling stalls (measured in Docker) drained it and flapped to the dry mix several times a minute.
+- The fallback has no transition function: `fade.in`/`fade.out` act per track and would keep re-fading the dry chain's track marks after a switch. The hard cut was measured gapless both ways.
+- The send output is built with `start=false` and started and stopped by `stream_up`/`stream_down`, so an off-air mixer stops pulling the chain as before.
+- While the processed return airs, `on_meta` delays the ICY insert by `processor.delayMs` in a `thread.run` that catches its own errors.
 
 ## Testing
 

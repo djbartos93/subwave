@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { config } from '../config.js';
 import * as settings from '../settings.js';
 import { listenerBufferSeconds, renderedBufferSeconds } from './stream-mounts-pure.js';
+import { processorLeadSeconds } from './processor-policy.js';
+import { currentProcessorStatus } from './processor-status.js';
 
 // A 2s memo, as in music-starve.ts: /now-playing is every listener's 5s poll,
 // and the file changes only when the broadcast pair relaunches.
@@ -25,7 +27,10 @@ function rendered(now: number): number | null {
 }
 
 /** Seconds every listener sits behind the live edge: the burst the running
- *  mounts were rendered with, else the saved stream.bufferSeconds. */
+ *  mounts were rendered with, else the saved stream.bufferSeconds, plus the
+ *  external processor's delay while its processed return is on air
+ *  (processor-policy.ts). Every listener surface and the voice webhooks read
+ *  this one figure, so they all shift together. */
 export function advertisedBufferSeconds(now: number = Date.now()): number {
   let setting: unknown;
   try {
@@ -33,5 +38,5 @@ export function advertisedBufferSeconds(now: number = Date.now()): number {
   } catch {
     setting = undefined;
   }
-  return listenerBufferSeconds(rendered(now), setting);
+  return listenerBufferSeconds(rendered(now), setting) + processorLeadSeconds(currentProcessorStatus(now));
 }

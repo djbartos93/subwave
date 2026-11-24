@@ -372,6 +372,26 @@ export interface DuckingForm {
   intro: string;
 }
 
+// settings.processor — the external broadcast processor (SRT send/return to a
+// bridge on another machine). Ports and delay are strings for the same reason
+// as the duck depths: a blank box must surface as a field error, never as 0.
+export interface ProcessorForm {
+  enabled: boolean;
+  host: string;
+  sendPort: string;
+  returnPort: string;
+  delayMs: string;
+}
+
+/** GET /settings `processorStatus`: the RUNNING mixer's processor, from
+ *  radio.liq's processor-status.json (controller/src/broadcast/processor-policy.ts). */
+export interface ProcessorStatusView {
+  enabled: boolean;
+  onAir: 'processed' | 'dry' | null;
+  delayMs: number;
+  since: number | null;
+}
+
 export interface DjBehaviourForm {
   showWelcome: boolean;
   previewNextShow: boolean;
@@ -403,6 +423,7 @@ export interface DjBehaviourValues {
 export interface FormState {
   crossfadeDuration: string;
   ducking: DuckingForm;
+  processor: ProcessorForm;
   maxTrackSeconds: string;
   maxTrackLengthMode: 'cut' | 'exclude';
   /** Station default for the show-boundary fade (#1574). A show's own
@@ -457,6 +478,7 @@ export interface SettingsData {
     jingleRotate?: JingleRotateOwner;
     crossfadeDuration?: number;
     ducking?: { voice?: number; intro?: number };
+    processor?: { enabled?: boolean; host?: string; sendPort?: number; returnPort?: number; delayMs?: number };
     maxTrackSeconds?: number;
     maxTrackLengthMode?: 'cut' | 'exclude';
     minTrackSeconds?: number;
@@ -674,6 +696,8 @@ export interface SettingsData {
     env?: { url?: boolean; user?: boolean; pass?: boolean };
   };
   streamOnAir?: boolean;
+  /** Absent on an older controller. */
+  processorStatus?: ProcessorStatusView;
   // What timezone '' (Auto) resolves to — the controller's own zone.
   serverTimezone?: string;
 }

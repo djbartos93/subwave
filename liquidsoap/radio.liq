@@ -51,6 +51,7 @@ starve_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/starve")
 voice_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/voice")
 intro_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/intro")
 jingle_overlay_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/jingle-overlay")
+processor_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/processor")
 
 # MUSIC STARVE GUARD (#1300 bug 7) — the latch only; its tick is registered far
 # below, after idle_mode exists. Declared here because the jingles gate reads it
@@ -230,7 +231,49 @@ if file.exists("#{state_dir}/liquidsoap_station_name.txt") then
   if raw != "" then station_name := raw end
 end
 
+# EXTERNAL PROCESSOR (processor.*): off unless enabled with a host. Every value
+# is validated by the controller on save; this re-checks because a hand-edited
+# file reaches the mixer directly, and anything unusable leaves the stage unbuilt
+# (the pre-existing chain, byte for byte). See the EXTERNAL PROCESSOR block below.
+processor_enabled = ref(false)
+processor_host = ref("")
+processor_send_port = ref(9000)
+processor_return_port = ref(9001)
+processor_delay_ms = ref(0)
+
+if file.exists("#{state_dir}/liquidsoap_processor_enabled.txt") then
+  raw = string.trim(file.contents("#{state_dir}/liquidsoap_processor_enabled.txt"))
+  processor_enabled := (raw == "true")
+end
+
+if file.exists("#{state_dir}/liquidsoap_processor_host.txt") then
+  processor_host := string.trim(file.contents("#{state_dir}/liquidsoap_processor_host.txt"))
+end
+
+if file.exists("#{state_dir}/liquidsoap_processor_send_port.txt") then
+  raw = string.trim(file.contents("#{state_dir}/liquidsoap_processor_send_port.txt"))
+  v = int_of_string(default=9000, raw)
+  if v >= 1 and v <= 65535 then processor_send_port := v end
+end
+
+if file.exists("#{state_dir}/liquidsoap_processor_return_port.txt") then
+  raw = string.trim(file.contents("#{state_dir}/liquidsoap_processor_return_port.txt"))
+  v = int_of_string(default=9001, raw)
+  if v >= 1 and v <= 65535 then processor_return_port := v end
+end
+
+if file.exists("#{state_dir}/liquidsoap_processor_delay_ms.txt") then
+  raw = string.trim(file.contents("#{state_dir}/liquidsoap_processor_delay_ms.txt"))
+  v = int_of_string(default=0, raw)
+  if v >= 0 and v <= 10000 then processor_delay_ms := v end
+end
+
+processor_active =
+  processor_enabled() and processor_host() != ""
+  and processor_send_port() != processor_return_port()
+
 log("settings loaded: jingle_ratio=#{jingle_ratio()} crossfade_duration=#{crossfade_duration()} duck_voice=#{duck_voice()} duck_intro=#{duck_intro()} archive_enabled=#{archive_enabled()} archive_bitrate=#{archive_bitrate()} stream_bitrate=#{stream_bitrate()} opus_enabled=#{opus_enabled()} opus_bitrate=#{opus_bitrate()} flac_enabled=#{flac_enabled()} aac_enabled=#{aac_enabled()} aac_bitrate=#{aac_bitrate()} opus_icy_metadata=#{ogg_icy_metadata()} flac_metadata=native station_name=#{station_name()}")
+log("settings loaded: processor_enabled=#{processor_enabled()} processor_host=#{processor_host()} processor_send_port=#{processor_send_port()} processor_return_port=#{processor_return_port()} processor_delay_ms=#{processor_delay_ms()} processor_active=#{processor_active}")
 
 # subhttp:<full-url> — whole-file download via curl (http.get.stream returns
 # spurious 522s on the Cloudflare-fronted Navidrome origin).
@@ -2410,11 +2453,130 @@ thread.run(every=STARVE_SAMPLE_SEC, fun () -> begin
   end
 end)
 
+# EXTERNAL PROCESSOR (processor.*, off by default). Sends the finished mix
+# (every add and duck, the idle gate, before the bus limiter) to a broadcast
+# processor on another machine over SRT and airs what comes back. The other end
+# is a bridge (tools/processor-bridge/, docs/external-processor.md) that plays
+# the feed into the processor and returns its output.
+#
+#  * Both legs are raw 16-bit stereo PCM at 44.1 kHz in SRT's message mode. The
+#    format carries no header, so either side can reconnect mid-stream and the
+#    first packet is audio: 1316-byte payloads are 329 whole stereo frames.
+#  * The mixer is the CALLER on both legs, so the broadcast container needs no
+#    published UDP port; the bridge listens.
+#  * The return runs on the SRT socket's clock, not the mixer's. buffer.adaptative
+#    puts it back on the mixer's clock and resamples by a hair to track the drift
+#    between the bridge's sound device and this host, which a plain buffer would
+#    turn into a periodic underrun or overflow.
+#  * The station keeps making sound: the fallback airs the dry mix whenever the
+#    return is not ready (bridge down, network gone, processor stopped). The
+#    switch is a hard cut both ways, measured gapless: going dry skips ahead by
+#    the processing delay, going back repeats it once. No transition function
+#    here, because fade.in/fade.out act per track and would keep re-fading the
+#    dry chain's track marks after the switch.
+#  * The send output follows the on-air lifecycle (stream_up/stream_down), so an
+#    off-air mixer still stops pulling the chain.
+#  * processor-status.json tells the controller which side is on air and the
+#    operator's measured delay, which it adds to the listener lead it publishes
+#    only while the processed return airs. Heartbeat `at` every 15 s.
+processor_on_air = ref(false)
+processor_since = ref(time())
+processor_marker_at = ref(0.)
+processor_output_start = ref(fun () -> ())
+processor_output_stop = ref(fun () -> ())
+
+def write_processor_marker() =
+  on_air = if processor_on_air() then "processed" else "dry" end
+  try
+    file.write(
+      data=json.stringify(compact=true, {
+        enabled = processor_active,
+        onAir = on_air,
+        delayMs = processor_delay_ms(),
+        since = processor_since(),
+        at = time()
+      }),
+      atomic=true,
+      temp_dir=processor_tmp_dir,
+      "#{state_dir}/processor-status.json"
+    )
+    processor_marker_at := time()
+  catch err do
+    log(label="processor", "processor-status.json write failed (#{err})")
+  end
+end
+
+radio =
+  if processor_active then
+    processor_pcm = %ffmpeg(format="s16le", %audio(codec="pcm_s16le", ac=2, ar=44100))
+    processor_send = output.srt(
+      id="processor_send",
+      mode="caller",
+      host=processor_host(),
+      port=processor_send_port(),
+      polling_delay=1.,
+      fallible=true,
+      start=false,
+      processor_pcm,
+      radio
+    )
+    processor_output_start := fun () -> processor_send.start()
+    processor_output_stop := fun () -> processor_send.stop()
+    processor_return = input.srt(
+      id="processor_return",
+      mode="caller",
+      host=processor_host(),
+      port=processor_return_port(),
+      polling_delay=1.,
+      content_type="application/ffmpeg;format=s16le,ch_layout=stereo,sample_rate=44100"
+    )
+    # One second of prebuffer: 0.3 s drained on ordinary scheduling stalls
+    # (~0.2 s, measured in Docker) and flapped to the dry mix and back several
+    # times a minute. Listeners sit bufferSeconds behind anyway, so the cost
+    # is only a larger processor.delayMs.
+    processed = buffer.adaptative(
+      id="processor_buffer",
+      fallible=true,
+      buffer=1.,
+      max=10.,
+      processor_return
+    )
+    thread.run(every=0.5, fun () -> begin
+      try
+        now_on = source.is_ready(processed)
+        if now_on != processor_on_air() then
+          processor_on_air := now_on
+          processor_since := time()
+          if now_on then
+            log(label="processor", "processed return on air")
+          else
+            log(label="processor", "processed return lost: airing the dry mix")
+          end
+          write_processor_marker()
+        elsif time() - processor_marker_at() >= 15. then
+          write_processor_marker()
+        end
+      catch err do
+        log(label="processor", "status tick failed (#{err})")
+      end
+    end)
+    log(label="processor", "external processor stage built: send #{processor_host()}:#{processor_send_port()}, return #{processor_host()}:#{processor_return_port()}, delay #{processor_delay_ms()} ms")
+    fallback(id="processor_fallback", track_sensitive=false, [processed, radio])
+  else
+    radio
+  end
+
+# Written once either way, so a station that turned processing off replaces a
+# marker left by the last run that had it on.
+write_processor_marker()
+
 # BROADCAST BUS — masters preserved; the brick-wall limiter (20:1 at -1 dBFS) is
 # the ONLY processing. A -14 LUFS normaliser, stereo widener and bus compressor
 # were all removed for reshaping the masters. The limiter stays because MP3
 # encoding generates inter-sample peaks ~0.5-1 dB over the source, so modern
 # masters (~-0.3 dBFS TP) would clip decoders. Typically 0 dB of reduction.
+# An external processor, when one is on (above), runs before this, so the limiter
+# still guards the encoders whatever the processor's own ceiling is.
 
 radio = compress(
   attack=1.0,
@@ -2436,6 +2598,28 @@ radio = compress(
 #     on_meta.
 radio = metadata.map(update=false, strip=true, fun(_) -> [], radio)
 radio = insert_metadata(radio)
+
+# The ICY title for on_meta. While the external processor's return airs, the
+# song reaches the mounts processor.delayMs after on_meta fires, so the title
+# waits with it; otherwise it goes in at once, as it always has. A helper rather
+# than a branch inside on_meta, whose every branch must clear the jingle latch
+# (scripts/jingle-play.test.ts counts them).
+def insert_icy_title(icy_meta) =
+  delay_ms = if processor_on_air() then processor_delay_ms() else 0 end
+  if delay_ms > 0 then
+    thread.run(
+      delay=float_of_int(delay_ms) / 1000.,
+      fun () ->
+        try
+          radio.insert_metadata(icy_meta)
+        catch err do
+          log(label="processor", "delayed ICY title failed (#{err})")
+        end
+    )
+  else
+    radio.insert_metadata(icy_meta)
+  end
+end
 
 def on_meta(m) =
   title = m["title"]
@@ -2501,11 +2685,7 @@ def on_meta(m) =
     file.write(data=payload, atomic=true, temp_dir=np_tmp_dir, "#{state_dir}/now-playing.json")
     # Same metadata onto the Icecast stream, so the ICY title tracks the current
     # song instead of lagging a transition behind.
-    radio.insert_metadata([
-      ("title", title),
-      ("artist", artist),
-      ("album", album)
-    ])
+    insert_icy_title([("title", title), ("artist", artist), ("album", album)])
   else
     # Untitled, non-bed metadata (emergency single, untagged local file).
     # Nothing to publish, but it still marks the bed's end: without this reset
@@ -2734,6 +2914,8 @@ stream_shutdown = ref(fun () -> ())
 def stream_up() =
   if not stream_on() then
     stream_shutdown := make_stream_outputs()
+    start_processor = processor_output_start()
+    start_processor()
     stream_on := true
   end
 end
@@ -2742,6 +2924,8 @@ def stream_down() =
   if stream_on() then
     fn = stream_shutdown()
     fn()
+    stop_processor = processor_output_stop()
+    stop_processor()
     stream_on := false
     # Drop now-playing.json so the UI stops advertising the last track: the
     # controller reads a missing file as "nothing playing". on_meta rewrites it

@@ -16,6 +16,7 @@ This file loads into every session, so it holds the map, the commands and one li
 | library, tagging, picker, requests, blocklist | [`docs/internals/music.md`](docs/internals/music.md) |
 | zod schemas, the `/settings` patch registry | [`docs/internals/schemas.md`](docs/internals/schemas.md) |
 | analyzer, Icecast rendering, auth gates, privacy, multi-station, state layout | [`docs/internals/infrastructure.md`](docs/internals/infrastructure.md) |
+| the external broadcast processor (SRT bridge, fallback, delay) | [`docs/external-processor.md`](docs/external-processor.md), `broadcast/processor-policy.ts` |
 
 ## Commands
 
@@ -66,6 +67,7 @@ The pieces are Broadcast (Icecast + Liquidsoap), Controller (Express, ESM, TypeS
 - `voice-playing.json`: a spoken clip started, which is what makes air-time stamps real (#1382).
 - `pause-talk-playing.json` → `pause-talk-voice-accepted.json` → `pause-talk-voice-started.json`: the ordered pause-and-talk handshake that makes a controller-only restart exactly-once.
 - `music-starved.json`: the dead-air guard's state, with a heartbeat. Surfaced as `musicStarved` on `GET /state`.
+- `processor-status.json`: the external processor's state (built, `processed` or `dry` on air, the running delay), with a heartbeat. Read by `broadcast/processor-status.ts`.
 
 **Controller → browsers** is HTTP: `web/hooks/useStationFeed.ts` polls `/now-playing`, `/state` and `/session` every 5 s. **Browsers → Icecast** is a direct `<audio>` on `/stream.mp3`, which must always be served (Sonos, hardware radios, cars, older Safari); `web/CLAUDE.md` has the Opus upgrade rules.
 
@@ -97,6 +99,7 @@ The pieces are Broadcast (Icecast + Liquidsoap), Controller (Express, ESM, TypeS
 - **One sanctioned exception is the over-music jingle ID** (`jinglePlacement: over | both`): the now-playing watcher offers it once per song, at the opening, and it stands down to any speech rather than taking a slot (`broadcast.md`).
 - **The other is a per-skill `cron:` timer** (`scheduler.speakSkillCron`). With `djTalkOnlyBetweenTracks` on it claims the one boundary before generating, and a fire that finds it taken stands down until its next cron tick; off, it speaks at once, outside any talk-air scope (`broadcast.md`).
 - **A rendered segment is placed, not trimmed**: the lever at a boundary is which boundary it takes (`broadcast/vocal-runway.ts`).
+- **The external processor's delay joins the listener lead only while its processed return airs**, read from the running mixer's `processor-status.json`, never the saved setting; the dry fallback adds nothing (`broadcast/processor-policy.ts`).
 - **A pause-and-talk break is silence on the music timeline.** The voice still goes through `say.txt`.
 - **A show handoff is prepared for the confirmed final outgoing track**, never by look-ahead alone (`show-boundary-handoffs.md`).
 - **The mixer's jingle list is the on-air show's, and becomes the incoming show's at the confirmed final outgoing track**, so the stinger at the seam between them is the incoming show's; the roll only re-applies it. Between stingers `jingles.reload` replaces the mixer's playlist, because a reload in place airs the old list's prepared clip first (`show-boundary-handoffs.md`, #2367).
