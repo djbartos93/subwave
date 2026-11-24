@@ -11,6 +11,8 @@ import { webhooksSchema } from '../schemas/webhook.js';
 import { mergeWebhookSecrets } from '../schemas/webhook-server.js';
 import { showsSchema, type ShowSchemaContext } from '../schemas/show.js';
 import { resolveShowIds } from '../schemas/show-server.js';
+import { formatClocksSchema } from '../schemas/format-clock.js';
+import { resolveFormatClockIds } from '../schemas/format-clock-server.js';
 import { djPromptsSchema, personasSchema, ttsVoiceSlotSchema } from '../schemas/persona.js';
 import { resolveDjPromptIds, resolvePersonaIds } from '../schemas/persona-server.js';
 import { scheduleSchema, scheduleOverrideSchema } from '../schemas/schedule.js';
@@ -62,7 +64,17 @@ export function validatePersonasStrict(raw) {
   return resolvePersonaIds(parsed.data);
 }
 
-export function validateShowsStrict(raw, personas, allowedThemeIds: Set<string>, moodNames: string[] = SHOW_MOODS) {
+/**
+ * Strict update-time path for the format clock list. Ids are minted and
+ * de-duplicated by the server-only sibling, shared with the lenient load path.
+ */
+export function validateFormatClocksStrict(raw) {
+  const parsed = formatClocksSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(firstMessage(parsed.error, 'formatClocks'));
+  return resolveFormatClockIds(parsed.data);
+}
+
+export function validateShowsStrict(raw, personas, allowedThemeIds: Set<string>, moodNames: string[] = SHOW_MOODS, formatClockIds: string[] = []) {
   // The non-array refusal is the SCHEMA's now, not a pre-check here — so this
   // path and the route report the same string for the same body.
   // Note the legacy singular fields #929 replaced (mood / genre / …) are
@@ -74,6 +86,7 @@ export function validateShowsStrict(raw, personas, allowedThemeIds: Set<string>,
     moodNames,
     themeIds: [...allowedThemeIds],
     minTrackSeconds: minTrackSeconds(),
+    formatClockIds,
   };
   const parsed = showsSchema(ctx).safeParse(raw);
   if (!parsed.success) throw new Error(firstMessage(parsed.error, 'shows'));

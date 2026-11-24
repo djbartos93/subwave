@@ -53,6 +53,7 @@ export function hydrateShow(s: Partial<Show>): Show {
     allowedJingles: Array.isArray(m.allowedJingles) ? m.allowedJingles : [],
     allowedBeds: Array.isArray(m.allowedBeds) ? m.allowedBeds : [],
     description: typeof m.description === 'string' ? m.description : '',
+    formatClockId: typeof m.formatClockId === 'string' && m.formatClockId.trim() ? m.formatClockId.trim() : null,
   };
 }
 
@@ -77,8 +78,11 @@ export function showContext(opts: {
   moods: string[];
   themeIds: string[];
   minTrackSeconds: number | null;
+  /** Saved format clock ids; omitted = shape-only check of `formatClockId`. */
+  formatClockIds?: string[] | null;
 }): ShowSchemaContext {
   return {
+    formatClockIds: opts.formatClockIds ?? null,
     personaIds: opts.personas.map(p => p.id),
     moodNames: opts.moods,
     themeIds: opts.themeIds,
@@ -139,6 +143,9 @@ export function showPayload(s: Show) {
     allowedJingles: s.allowedJingles || [],
     allowedBeds: s.allowedBeds || [],
     description: (s.description || '').trim(),
+    // null = none. A programme show cannot carry one, so the schema's own
+    // message surfaces rather than this payload quietly dropping it.
+    formatClockId: s.formatClockId ? s.formatClockId : null,
   };
 }
 

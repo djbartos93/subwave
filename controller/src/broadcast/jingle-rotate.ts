@@ -4,10 +4,11 @@
 // a restart. See docs/internals/broadcast.md. #1619, #997, #1258, #1468.
 
 import { jinglePlacementSchema, type JinglePlacement, type JingleRotateOwner } from '../schemas/settings.js';
+import { anyShowHasFormatClock } from './format-clock-ownership-policy.js';
 
 export type { JingleRotateOwner };
 
-type JingleSettings = { jingleRatio?: unknown; jingleRotate?: unknown; jinglePlacement?: unknown };
+type JingleSettings = { jingleRatio?: unknown; jingleRotate?: unknown; jinglePlacement?: unknown; shows?: unknown; formatClocks?: unknown };
 
 // Malformed/absent placement preserves the existing station.
 export function jinglePlacement(s: JingleSettings | null | undefined): JinglePlacement {
@@ -21,7 +22,11 @@ export function jingleRotateOwner(
   s: JingleSettings | null | undefined,
 ): JingleRotateOwner {
   // Both draws share one anti-repeat memory. The mixer cannot see an overlay draw.
-  return jinglePlacement(s) !== 'between' || s?.jingleRotate === 'controller' ? 'controller' : 'mixer';
+  // A format clock (broadcast/format-clock.ts) owns imaging during its hours, and
+  // a mixer-owned rotate cannot be told to stand down, so any show running one
+  // forces controller ownership too. The saved `jingleRotate` is not rewritten.
+  return jinglePlacement(s) !== 'between' || s?.jingleRotate === 'controller' || anyShowHasFormatClock(s)
+    ? 'controller' : 'mixer';
 }
 
 // The exact BYTES of `liquidsoap_jingle_ratio.txt`. 0 while the controller owns

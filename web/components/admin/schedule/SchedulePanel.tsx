@@ -76,6 +76,7 @@ function hydrateShow(raw: Record<string, unknown>): ScheduleShow | null {
     energies: Array.isArray(raw.energies)
       ? (raw.energies as string[])
       : typeof raw.energy === 'string' && raw.energy ? [raw.energy] : [],
+    clocked: typeof raw.formatClockId === 'string' && raw.formatClockId.trim() !== '',
   };
 }
 

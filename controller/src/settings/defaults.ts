@@ -42,6 +42,7 @@ import {
   Webhook,
   emptyWeek,
 } from './vocab.js';
+import type { FormatClock } from '../schemas/format-clock.js';
 
 export const DEFAULTS = {
   jinglePlacement: 'between' as JinglePlacement,
@@ -826,6 +827,8 @@ export const DEFAULTS = {
   },
   // Fire-and-forget station-event POSTs (event list in broadcast/webhooks.ts).
   webhooks: [] as Webhook[],
+  // Per-show hour templates (schemas/format-clock.ts). Empty = no show has one.
+  formatClocks: [] as FormatClock[],
   webhooksPolicy: {
     // When true, track.play POSTs only when listener count > 0 (fail-closed on
     // null/unknown/non-finite, like scrobble).

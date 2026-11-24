@@ -941,6 +941,9 @@ export interface NormalizedShow {
    *  every one. See broadcast/show-allowlist.ts. */
   allowedJingles: string[];
   allowedBeds: string[];
+  /** The format clock that schedules this show's talk and imaging, or null for
+   *  none (the show behaves as it always has). Never with `programme`. */
+  formatClockId: string | null;
   /** Listener-facing blurb (#2358). '' = unset; listener surfaces fall back to
    *  `topic`. Never carried by resolveShow(): no model reads it. */
   description: string;

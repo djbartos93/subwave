@@ -16,6 +16,8 @@ export interface ScheduleShow {
   personaId: string;
   moods: string[];
   energies: string[];
+  /** Runs on a format clock: its talk and imaging follow an hour template. */
+  clocked?: boolean;
 }
 
 /** One contiguous run of hours on one day. `showId` null = silent hours. */

@@ -32,9 +32,12 @@ export function candidateCoverage<T extends Pick<Candidate, 'moods' | 'audioMood
   return { mood, energy, vocal };
 }
 
-// Pure count funnel. It deliberately excludes recency and journey state: those
-// are transient discovery constraints, not properties of a show configuration.
-export function buildShowCandidateDiagnostic({ show, libraryRows, playlistRows, excludedIds, locks, minTrackSec = null, maxTrackSec = null, warnings = [] }: { show: any; libraryRows: Candidate[]; playlistRows: Candidate[] | null; excludedIds: Set<string> | null; locks: Locks; minTrackSec?: number | null; maxTrackSec?: number | null; warnings?: string[] }): ShowCandidateDiagnostic {
+export interface ShowPools { strict: boolean; playlistStrict: boolean; libraryPool: Candidate[]; playlistPool: Candidate[] | null; libraryFiltered: Candidate[]; playlistFiltered: Candidate[] | null; libraryEffective: Candidate[]; playlistEffective: Candidate[] | null }
+
+// The pools the funnel counts, kept as rows so a second reader (the format
+// clock's average song length, music/show-timing.ts) judges the SAME tracks the
+// diagnostic counts instead of restating the filter chain.
+export function buildShowPools({ show, libraryRows, playlistRows, excludedIds, locks, minTrackSec = null, maxTrackSec = null }: { show: any; libraryRows: Candidate[]; playlistRows: Candidate[] | null; excludedIds: Set<string> | null; locks: Locks; minTrackSec?: number | null; maxTrackSec?: number | null }): ShowPools {
   const strict = show?.filtersStrict === true && hasMusicFilter(show);
   // Minimum track length (#1573) applies FIRST and to both universes, before the
   // strict split, because unlike the music locks it is not gated on
@@ -53,6 +56,13 @@ export function buildShowCandidateDiagnostic({ show, libraryRows, playlistRows, 
   const libraryEffective = exclude(strict ? libraryFiltered : libraryPool, excludedIds);
   const playlistEffective = playlistFiltered == null ? null : exclude(strict ? playlistFiltered : playlistPool!, excludedIds);
   const playlistStrict = !!(show?.playlistStrict && playlistRows);
+  return { strict, playlistStrict, libraryPool, playlistPool, libraryFiltered, playlistFiltered, libraryEffective, playlistEffective };
+}
+
+// Pure count funnel. It deliberately excludes recency and journey state: those
+// are transient discovery constraints, not properties of a show configuration.
+export function buildShowCandidateDiagnostic({ show, libraryRows, playlistRows, excludedIds, locks, minTrackSec = null, maxTrackSec = null, warnings = [] }: { show: any; libraryRows: Candidate[]; playlistRows: Candidate[] | null; excludedIds: Set<string> | null; locks: Locks; minTrackSec?: number | null; maxTrackSec?: number | null; warnings?: string[] }): ShowCandidateDiagnostic {
+  const { strict, playlistStrict, libraryFiltered, playlistFiltered, libraryEffective, playlistEffective } = buildShowPools({ show, libraryRows, playlistRows, excludedIds, locks, minTrackSec, maxTrackSec });
   return {
     strict,
     library: { indexed: libraryRows.length, matchingFilters: libraryFiltered.length, afterExclusions: exclude(libraryFiltered, excludedIds).length, effective: playlistStrict ? (playlistEffective?.length ?? 0) : libraryEffective.length },
@@ -61,7 +71,12 @@ export function buildShowCandidateDiagnostic({ show, libraryRows, playlistRows, 
   };
 }
 
-export async function diagnoseShowCandidates(show: any): Promise<ShowCandidateDiagnostic> {
+export interface ShowPoolInputs { show: any; libraryRows: Candidate[]; playlistRows: Candidate[] | null; excludedIds: Set<string> | null; locks: Locks; minTrackSec: number | null; maxTrackSec: number | null; warnings: string[] }
+
+// Everything the pools are judged against, resolved once. The diagnostic and
+// music/show-timing.ts both read it, so they cannot disagree on what a show can
+// pick.
+export async function gatherShowPoolInputs(show: any): Promise<ShowPoolInputs> {
   await library.load();
   const libraryRows = library.candidateFilterTracks();
   const coverage = candidateCoverage(libraryRows);
@@ -96,5 +111,9 @@ export async function diagnoseShowCandidates(show: any): Promise<ShowCandidateDi
       ? `${tagged} library track${tagged === 1 ? ' is' : 's are'} tagged explicit and held back from the counts below. Untagged tracks still count.`
       : 'No library track is tagged explicit yet, so most tracks will pass. Tags are only read when you run Reconcile with Navidrome on the Library page: it does not run by itself.');
   }
-  return buildShowCandidateDiagnostic({ show, libraryRows, playlistRows: playlistPool?.tracks ?? null, excludedIds, locks, minTrackSec, maxTrackSec, warnings });
+  return { show, libraryRows, playlistRows: playlistPool?.tracks ?? null, excludedIds, locks, minTrackSec, maxTrackSec, warnings };
+}
+
+export async function diagnoseShowCandidates(show: any): Promise<ShowCandidateDiagnostic> {
+  return buildShowCandidateDiagnostic(await gatherShowPoolInputs(show));
 }

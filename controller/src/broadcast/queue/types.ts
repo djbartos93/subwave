@@ -146,6 +146,16 @@ export interface QueueItem {
   // session — even when the same persona hosts both shows.
   introSessionKey?: string | null;
   aiPicked?: boolean;
+  // The format clock's imaging and break for the seam this item's pick was
+  // planned behind (broadcast/format-clock.ts). Stamped on the pick's ANCHOR
+  // while it is held, fired when it goes on air so the actions land at its end
+  // seam, then cleared. It rides the wholesale queue.json snapshot, so a
+  // restart between the stamp and the fire still fires it. Never projected.
+  formatSeam?: { imaging: number; talk: { kind: 'station-id' | 'segment'; skill?: string; topOfHour?: boolean } | null; allowedJingles: string[]; showId: string | null };
+  // This on-air item's end seam has already fired (or been handed to its
+  // anchor's fire), so a repeated pick cycle on the same anchor, or one after a
+  // restart, never fires it twice. Persisted for exactly that reason.
+  formatSeamFired?: boolean;
   // Picker's padded show forecast, independent of whether its link spoke a
   // clock. Persisted so selection checks follow that show's live length limit.
   selectionShowAt?: number | null;

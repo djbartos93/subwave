@@ -38,6 +38,7 @@ async function showPostContext() {
     moodNames: (s.moods || []).map((m: { name: string }) => m.name),
     themeIds: (await listThemes()).map((t: { id: string }) => t.id),
     minTrackSeconds: settings.minTrackSeconds(),
+    formatClockIds: (s.formatClocks || []).map((c: { id: string }) => c.id),
   });
 }
 

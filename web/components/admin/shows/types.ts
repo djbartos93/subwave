@@ -1,4 +1,4 @@
-import type { JingleRotateOwner, JinglePlacement } from '@/lib/schemas.generated';
+import type { FormatClock, JingleRotateOwner, JinglePlacement } from '@/lib/schemas.generated';
 import type { JingleEntry } from '../settings/shared';
 
 import {
@@ -115,6 +115,10 @@ export interface Show {
   /** What listeners read on the schedule and On Now card (#2358). '' = unset:
    *  they see the brief (`topic`) instead. Never reaches the DJ. */
   description: string;
+  /** The format clock (Shows → Format clocks) that schedules this show's talk
+   *  and imaging. null = none: the station's normal talk rhythm. A programme
+   *  show cannot have one. */
+  formatClockId: string | null;
 }
 
 /** Mirrors the controller's EraWindow. Multiple windows let a show span
@@ -276,6 +280,8 @@ export interface SettingsResponse {
      *  honour a show's jingle list. */
     jingleRotate?: JingleRotateOwner;
     jinglePlacement?: JinglePlacement;
+    /** Saved format clocks (the full list rides GET /settings). */
+    formatClocks?: FormatClock[];
   };
   tts?: { moods?: string[] };
   /** The station's jingle library (files that exist), for the Imaging lists. */

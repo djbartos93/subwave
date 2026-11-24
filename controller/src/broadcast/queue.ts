@@ -20,6 +20,8 @@ import * as libraryMount from '../music/library-mount.js';
 import { capCueOutSec } from '../music/track-floor.js';
 import { swallowedByCrossfade } from '../util/request-guard.js';
 import * as showBoundary from './show-boundary.js';
+import * as formatClock from './format-clock.js';
+import { overlayStandsDownForClock } from './format-clock-ownership-policy.js';
 import * as blocklist from '../music/blocklist.js';
 import { artistRootKey, creditedActKeys, creditedActNames, trackKey, type CandidateLike } from '../music/recency.js';
 import type { AirTimeOf } from '../music/show-recency.js';
@@ -1889,7 +1891,7 @@ class Queue {
       trim.cueInSec,
     );
     if (playable == null || playable <= 0) return null;
-    const boundaryMs = showBoundary.nextShowBoundaryMs(startMs, playable);
+    const boundaryMs = showBoundary.nextCutBoundaryMs(startMs, playable);
     // A tagged pick that started in time to be the outgoing show's still may not
     // run on into a clean show, whatever the outgoing show says about fading.
     const intoCleanShow = boundaryMs != null && heldBackFromShow(item.track, settings.resolveActiveShow(new Date(boundaryMs)));
@@ -3776,21 +3778,35 @@ class Queue {
   // away.
   async playRotateJingle(): Promise<boolean> {
     this._tracksSinceJingle = 0;
+    return this.airDrawnJingle(session.onAirShow(), 'rotate');
+  }
+
+  // A format clock's imaging step (broadcast/format-clock.ts): the rotate's own
+  // draw and anti-repeat, from the allowlist of the show the seam airs in, with
+  // none of the rotate's counter. Same single writer, same booth line, same
+  // pending bookkeeping as the rotate and a press.
+  async playImagingJingle(allowedJingles: readonly string[] | undefined): Promise<boolean> {
+    return this.airDrawnJingle({ name: 'format clock', allowedJingles }, 'imaging');
+  }
+
+  private async airDrawnJingle(
+    show: { name?: string | null; allowedJingles?: readonly string[] | null } | null | undefined,
+    label: 'rotate' | 'imaging',
+  ): Promise<boolean> {
     const library = (await jingles.list()).map(j => j.filename);
-    const show = session.onAirShow();
     const filename = pickRotateJingle(
-      allowedForShow(library, show?.allowedJingles, f => f),
+      allowedForShow(library, show?.allowedJingles as string[] | undefined, f => f),
       lastAiredJingleFilename() ?? this._lastRotateJingle,
     );
     if (!filename) {
       this.log('scheduler', library.length
-        ? `[jingle] rotate skipped — show "${show?.name}" allows none of the jingles in the library`
+        ? `[jingle] ${label} skipped — show "${show?.name}" allows none of the jingles in the library`
         : '[jingle] rotate skipped — the jingle library is empty');
       return false;
     }
     const res = await this.playJingle(filename, { rotate: true });
     if (!res.ok) {
-      this.log('scheduler', `[jingle] rotate skipped — "${filename}" ${res.reason}`);
+      this.log('scheduler', `[jingle] ${label} skipped — "${filename}" ${res.reason}`);
       return false;
     }
     this._lastRotateJingle = filename;
@@ -3817,6 +3833,8 @@ class Queue {
     const boundary = this._overlayBoundary;
     const item = this.current;
     if (!boundary || boundary.offered || !item) return;
+    // A format clock owns the hour's imaging: no over-music ID rides on top of it.
+    if (overlayStandsDownForClock(formatClock.formatClockOwnsTalk())) return;
     const s = settings.get();
     const placement = jinglePlacement(s);
     // The previous song's stamp governs when this one's opening clears.
@@ -4002,6 +4020,14 @@ class Queue {
       // item is a spread clone, so carry the lifecycle across that identity
       // hand-off before airIntro tries to reuse it.
       this._introRenders.transfer(item, this.current);
+      // The format clock's seam stamped on this item while it was held: this is
+      // the track it follows, so the imaging and break land at ITS end.
+      if (item.formatSeam) {
+        const seam = item.formatSeam;
+        delete this.current.formatSeam;
+        this.current.formatSeamFired = true;
+        void formatClock.fireSeam(this, seam);
+      }
       // A bed can start publishing the link before the song starts. Keep
       // waiting for that same publication after cloning the queued item.
       const introPublication = this._introPublications.get(item);
@@ -4306,6 +4332,30 @@ class Queue {
     return true;
   }
 
+  // Hand a format clock's imaging and break to the seam this pick follows.
+  // That seam is the END of the pick's anchor: the held item under pair-drain,
+  // else the track on air. A held anchor carries the actions on the item and
+  // they fire when it goes on air (onTrackStarted), so imaging reaches the
+  // mixer for the seam it was planned against and not for the one before it.
+  // An anchor already on air fires now; the jingle waits for the mixer's next
+  // safe boundary and the break for the next track boundary, both its end.
+  // `formatSeamFired` makes a repeated cycle on the same anchor (the deadline
+  // backstop, a restart) a no-op. Not private: scripts/format-clock-queue.test.ts.
+  deliverFormatSeam(seam: formatClock.FormatSeam, pickAnchorItem: QueueItem | null): void {
+    const queued = formatClock.queuedSeam(seam);
+    if (pickAnchorItem) {
+      // Overwritten, not appended: the same boundary decided twice is one seam.
+      if (queued) pickAnchorItem.formatSeam = queued; else delete pickAnchorItem.formatSeam;
+      this.persist();
+      return;
+    }
+    const onAir = this.current;
+    if (!queued || !onAir || onAir.formatSeamFired) return;
+    onAir.formatSeamFired = true;
+    this.persist();
+    void formatClock.fireSeam(this, queued);
+  }
+
   // One full DJ pick cycle: session roll, programme plan, persona handoff, link
   // cadence, pick. `pickAnchorItem` lets maybeDeadlinePick run the same cycle
   // against the HELD item this selection is intended to follow — `current` is
@@ -4314,8 +4364,46 @@ class Queue {
   // append behind the held item while the asynchronous selection is running.
   // Fire-and-forget; pickerBusy is the reentry guard.
   runPickCycle({ isAutonomous, pickAnchorItem = null }: { isAutonomous: boolean; pickAnchorItem?: QueueItem | null }) {
+    // The pick made now airs when the track it FOLLOWS ends, so near a show
+    // boundary the rules to pick by are the NEXT show's. PICK_SHOW_LOOKAHEAD
+    // probes a little past the expected start so a pick beginning just shy
+    // of the boundary — and playing mostly inside the new show — counts as
+    // the new show's.
+    //
+    // The lead is what REMAINS of the on-air track, never its full duration:
+    // this cycle also runs from the deadline backstop and from boot
+    // recovery, part-way through a track, where the elapsed part would push
+    // `showAt` over the next boundary early (#1205). With a held pick anchor
+    // (deadline path) the pick follows the HELD track instead, so the lead
+    // adds that track's length — the span it will AIR, after the length
+    // cap and trim the drain has not stamped on it yet, never its raw
+    // tagged duration. Unknown clock → no look-ahead.
+    //
+    // This ONE date then drives the whole boundary sequence below — roll,
+    // episode plan, mic-pass, episode hook — not just the pick. Leaving the
+    // roll and handoff on the live clock is what let the two disagree: at
+    // 09:58 the live grid still says "morning show", so the roll never fired
+    // here and the :00 cron won it mid-song, airing the changeover track
+    // (already picked under the incoming brief) BEFORE anyone handed over.
+    // With one date there is no second date to disagree with.
+    //
+    // All synchronous, so it is computed ahead of the link counter below: a
+    // show that runs a format clock decides its links from the clock, and the
+    // random counter must not tick for it.
+    const leadSec = pickLeadSec(
+      this.remainingSecOnAir(),
+      // 0 (unknown) keeps pickLeadSec's "held, length unknown → no
+      // look-ahead"; null would read as "no held anchor" instead.
+      pickAnchorItem ? (this.heldPlayableSec(pickAnchorItem) ?? 0) : null,
+    );
+    const forecastNow = Date.now();
+    const nextBoundaryAt = showBoundary.nextShowBoundaryMs(forecastNow, 6 * 3600);
+    const showAt = pickShowDate(forecastNow, leadSec, nextBoundaryAt);
     let wantLink = false;
-    if (this.autoLink && isAutonomous && this.history[0]) {
+    // A show with a format clock replaces the random link counter with the
+    // clock's decision (broadcast/format-clock.ts), made below at the seam.
+    const onFormatClock = formatClock.clockForShow(settings.resolvePickShow(showAt ?? new Date())) !== null;
+    if (!onFormatClock && this.autoLink && isAutonomous && this.history[0]) {
       this.tracksUntilLink--;
       if (this.tracksUntilLink <= 0) {
         this.tracksUntilLink = pickLinkInterval();
@@ -4326,37 +4414,6 @@ class Queue {
     (async () => {
       let outcome: 'capped' | undefined;
       try {
-        // The pick made now airs when the track it FOLLOWS ends, so near a show
-        // boundary the rules to pick by are the NEXT show's. PICK_SHOW_LOOKAHEAD
-        // probes a little past the expected start so a pick beginning just shy
-        // of the boundary — and playing mostly inside the new show — counts as
-        // the new show's.
-        //
-        // The lead is what REMAINS of the on-air track, never its full duration:
-        // this cycle also runs from the deadline backstop and from boot
-        // recovery, part-way through a track, where the elapsed part would push
-        // `showAt` over the next boundary early (#1205). With a held pick anchor
-        // (deadline path) the pick follows the HELD track instead, so the lead
-        // adds that track's length — the span it will AIR, after the length
-        // cap and trim the drain has not stamped on it yet, never its raw
-        // tagged duration. Unknown clock → no look-ahead.
-        //
-        // This ONE date then drives the whole boundary sequence below — roll,
-        // episode plan, mic-pass, episode hook — not just the pick. Leaving the
-        // roll and handoff on the live clock is what let the two disagree: at
-        // 09:58 the live grid still says "morning show", so the roll never fired
-        // here and the :00 cron won it mid-song, airing the changeover track
-        // (already picked under the incoming brief) BEFORE anyone handed over.
-        // With one date there is no second date to disagree with.
-        const leadSec = pickLeadSec(
-          this.remainingSecOnAir(),
-          // 0 (unknown) keeps pickLeadSec's "held, length unknown → no
-          // look-ahead"; null would read as "no held anchor" instead.
-          pickAnchorItem ? (this.heldPlayableSec(pickAnchorItem) ?? 0) : null,
-        );
-        const forecastNow = Date.now();
-        const nextBoundaryAt = showBoundary.nextShowBoundaryMs(forecastNow, 6 * 3600);
-        const showAt = pickShowDate(forecastNow, leadSec, nextBoundaryAt);
         const pickCtx = await prepareEpisodeContext(await getFullContext(showAt ?? undefined));
         const liveCtx = await prepareEpisodeContext(await getFullContext());
         await session.maybeRoll(liveCtx);
@@ -4422,13 +4479,37 @@ class Queue {
         } catch (err) {
           this.log('error', `Programme episode hook failed: ${(err as Error).message}`);
         }
-        outcome = await djAgent.runTrackEvent(this, pickCtx, {
+        // A show with a format clock: the clock decides this seam (links, imaging,
+        // a station ID or a named segment) and may cap the pick's length so the
+        // hour ends on a song boundary. A show-change handoff keeps the seam's
+        // talk, so its own link and breaks stand down (format-clock-ownership-policy).
+        let formatSeam: formatClock.FormatSeam | null = null;
+        try {
+          formatSeam = formatClock.planFormatSeam(this, { showAt, finalTrackHandoff });
+        } catch (err) {
+          this.log('error', `Format clock decision failed: ${(err as Error).message}`);
+        }
+        if (formatSeam) {
+          wantLink = formatSeam.plan.wantLink && this.autoLink && isAutonomous && !!this.history[0];
+          this.deliverFormatSeam(formatSeam, pickAnchorItem);
+        }
+        const trackEvent = (maxSongSec: number | null) => djAgent.runTrackEvent(this, pickCtx, {
           // The mic-pass owns this seam; an outgoing link cannot follow it.
           wantLink: wantLink && !finalTrackHandoff,
           showAt,
           pickAnchor: pickAnchorItem?.track ?? null,
           anchorPrior: pickAnchorItem ? (this.current?.track ?? null) : null,
+          maxSongSec,
         });
+        const queuedBefore = new Set<unknown>(this.upcoming);
+        outcome = await trackEvent(formatSeam?.maxSongSec ?? null);
+        // Never starve: a cap the show's music cannot meet leaves the picker
+        // with nothing, so the slot is picked again without it. The hour then
+        // overruns a little, which is the fill rule's normal case.
+        if (formatSeam?.maxSongSec != null && outcome !== 'capped' && !this.upcoming.some(i => !queuedBefore.has(i))) {
+          this.log('picker', `[format-clock] nothing fit the ${formatSeam.maxSongSec}s fit cap — picking without it`);
+          outcome = await trackEvent(null);
+        }
       } catch (err) {
         this.log('error', `DJ track event failed: ${(err as Error).message}`);
       } finally {
