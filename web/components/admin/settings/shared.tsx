@@ -388,6 +388,8 @@ export interface ProcessorForm {
 export interface ProcessorStatusView {
   enabled: boolean;
   onAir: 'processed' | 'dry' | null;
+  /** Why the dry mix airs. Absent on an older controller. */
+  reason?: 'lost' | 'silent' | null;
   delayMs: number;
   since: number | null;
 }

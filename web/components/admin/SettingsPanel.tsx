@@ -1257,7 +1257,9 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
                     : data.processorStatus.onAir === 'processed'
                       ? 'processed audio on air'
                       : data.processorStatus.onAir === 'dry'
-                        ? 'return lost: airing the dry mix'
+                        ? data.processorStatus.reason === 'silent'
+                          ? 'return silent: airing the dry mix'
+                          : 'return lost: airing the dry mix'
                         : 'status unknown'
                 }
               >
@@ -1285,8 +1287,9 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
                     <div className="field-hint">
                       Sends the finished mix to a broadcast processor (Breakaway One, Stereo Tool
                       and the like) on another machine over SRT and airs what comes back, on every
-                      mount. If the return stops, the dry mix airs until it is back, so the station
-                      never goes silent. The other machine runs the bridge script; setup is in{' '}
+                      mount. If the return stops, or arrives silent while the mix is not, the dry
+                      mix airs until it is back, so the station never goes silent. The other
+                      machine runs the bridge script; setup is in{' '}
                       <code>docs/external-processor.md</code>.
                     </div>
                   </div>
@@ -1378,7 +1381,7 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
                     <SettingsFieldError path="processor.delayMs" errors={fieldErrors} />
                     <div className="field-hint">
                       How much later the processed audio reaches the mounts than the dry mix
-                      would: the processor&apos;s own latency plus about 2.2 s of network and
+                      would: the processor&apos;s own latency plus about 2.7 s of network and
                       buffers. A few hundred ms either way is fine. While the processed return
                       is on air,
                       players add it to the listener buffer so the track clock, lyrics and
