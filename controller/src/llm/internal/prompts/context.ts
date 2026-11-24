@@ -142,9 +142,13 @@ export function steerLine(context: any): string {
 
 export function buildContextLines(
   context: any,
-  { recentTracks, contextFields, steer = false }: {
+  { recentTracks, contextFields, steer = false, withholdClock = false }: {
     recentTracks?: any[];
     contextFields?: string | readonly string[] | null;
+    // Keep the clock numerals out of this one prompt, as the clock switch does
+    // for every prompt: the show welcome that airs with the hourly time check
+    // switched off states no time.
+    withholdClock?: boolean;
     // The operator's steer, opted into by the links and segments a steer leans
     // (a song intro, a segment, banter, a programme feature) and by nothing
     // else. Never a prompt built around a listener's own words, whose output
@@ -185,7 +189,7 @@ export function buildContextLines(
     // and isDark is what stops the DJ describing daylight after sunset. The
     // heading moves with them, because "Local time:" carrying no time reads as
     // a bug rather than as a setting.
-    if (!speakClockAllowed()) {
+    if (withholdClock || !speakClockAllowed()) {
       if (tags.length) lines.push(`Vibe: ${tags.join(' · ')}`);
     } else {
       lines.push(`Local time: ${context.clock.display || context.clock.hhmm}${tags.length ? ' · ' + tags.join(' · ') : ''}`);

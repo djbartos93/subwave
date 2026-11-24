@@ -6,10 +6,12 @@
 import * as settings from '../settings.js';
 import { zonedParts } from '../time.js';
 import { autoVoiceAllowed } from './voice-policy.js';
-import { autoTimeCheckAllowed } from './clock-policy.js';
+import { hourlySlotPlan } from './clock-policy.js';
 import { talkSlot, openMinuteFor, talkMinute } from './talk-scheduler.js';
 
-export function shouldFire(kind, now = new Date()) {
+// `showStarted` (hourly only): the :00 roll entered a new scheduled show, which
+// may earn the show welcome even with the time check off.
+export function shouldFire(kind, now = new Date(), { showStarted = false }: { showStarted?: boolean } = {}) {
   // Voice switch sits above the ladder: it isn't a cadence. Manual
   // /dj/segment triggers never reach here, so they stay exempt.
   if (!autoVoiceAllowed()) return false;
@@ -35,9 +37,14 @@ export function shouldFire(kind, now = new Date()) {
   }
 
   if (kind === 'hourly') {
-    // Clock switch. Gated here rather than in generateHourlyTime so the
-    // operator's manual "Time check" pad keeps speaking the time.
-    if (!autoTimeCheckAllowed()) return false;
+    // Clock and hourly switches, plus the show welcome (clock-policy.ts).
+    // Gated here rather than in generateHourlyTime so the operator's manual
+    // "Time check" pad keeps speaking the time.
+    const plan = hourlySlotPlan({ showStarted });
+    if (!plan.timeCheck && !plan.welcome) return false;
+    // A show change is not a routine check, so quiet's every-other-hour
+    // cadence never skips its welcome.
+    if (plan.welcome) return true;
     // Station-zone hour, so the every-other-hour cadence follows the
     // operator's clock, like the slot's own minutes.
     if (f === 'quiet') return zonedParts(now).hour % 2 === 0;

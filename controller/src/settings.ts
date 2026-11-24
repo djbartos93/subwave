@@ -676,6 +676,9 @@ export async function load() {
       showWelcome: typeof stored.djBehaviour?.showWelcome === 'boolean'
         ? stored.djBehaviour.showWelcome
         : DEFAULTS.djBehaviour.showWelcome,
+      hourlyTimeCheck: typeof stored.djBehaviour?.hourlyTimeCheck === 'boolean'
+        ? stored.djBehaviour.hourlyTimeCheck
+        : DEFAULTS.djBehaviour.hourlyTimeCheck,
       previewNextShow: typeof stored.djBehaviour?.previewNextShow === 'boolean'
         ? stored.djBehaviour.previewNextShow
         : DEFAULTS.djBehaviour.previewNextShow,
@@ -1812,6 +1815,7 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
   if ('djBehaviour' in patch) {
     const behaviour = parseSettingsPatchKey<{
       showWelcome?: boolean;
+      hourlyTimeCheck?: boolean;
       previewNextShow?: boolean;
       sameHostAcknowledgement?: boolean;
       holdDuckBetweenSpeakers?: boolean;
@@ -1823,7 +1827,7 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
     }>(
       'djBehaviour', patch.djBehaviour,
     );
-    for (const key of ['showWelcome', 'previewNextShow', 'sameHostAcknowledgement', 'holdDuckBetweenSpeakers', 'extendedSleeveNotes'] as const) {
+    for (const key of ['showWelcome', 'hourlyTimeCheck', 'previewNextShow', 'sameHostAcknowledgement', 'holdDuckBetweenSpeakers', 'extendedSleeveNotes'] as const) {
       if (behaviour[key] !== undefined) next.djBehaviour[key] = behaviour[key];
     }
     if (behaviour.releaseYearMentions !== undefined) {

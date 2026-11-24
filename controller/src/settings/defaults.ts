@@ -263,6 +263,12 @@ export const DEFAULTS = {
   // scheduled show change. Off preserves the established terse time check.
   djBehaviour: {
     showWelcome: false,
+    // The automatic top-of-the-hour time check. Off stands down only that
+    // segment: the DJ may still mention the time elsewhere (that is
+    // djSpeakClock), and a scheduled show change still gets its welcome when
+    // showWelcome is on (broadcast/clock-policy.ts hourlySlotPlan). On by
+    // default, the behaviour every station has always had.
+    hourlyTimeCheck: true,
     // The optional final-quarter-hour programme preview is independent of the
     // presenter handoff. Keep the established preview on for existing stations;
     // operators who prefer the handoff to be the only acknowledgement can turn

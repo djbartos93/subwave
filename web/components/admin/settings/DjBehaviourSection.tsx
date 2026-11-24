@@ -120,6 +120,24 @@ export function DjBehaviourSection({ form, setForm, busy, saveSettings, fieldErr
         </div>
       </Card>
 
+      <Card title="Time check" sub="the automatic top-of-the-hour segment">
+        <CueRow
+          id="dj-hourly-time-check"
+          label="Top-of-the-hour time check"
+          hint={
+            <>
+              At the top of each hour the DJ tells the time. Off stops only that segment: the DJ can still
+              mention the time in passing, and the &ldquo;Time check&rdquo; button on the dashboard still works.
+              {form.djBehaviour.showWelcome
+                ? ' A scheduled show change still gets its welcome, aired on its own.'
+                : ''}
+            </>
+          }
+          on={form.djBehaviour.hourlyTimeCheck}
+          onChange={on => setBehaviour({ hourlyTimeCheck: on })}
+        />
+      </Card>
+
       <Card title="Segments & Skills" sub="how a segment gathers its facts">
         <div className="field">
           <Label {...segmentRuntimeAria.labelledByProps}>Runtime</Label>
@@ -153,7 +171,7 @@ export function DjBehaviourSection({ form, setForm, busy, saveSettings, fieldErr
           <CueRow
             id="dj-welcome-new-show"
             label="Welcome the new show"
-            hint="The incoming DJ’s first hourly time check adds a short welcome to the new show. It does not replace the handoff, and ordinary hourly checks stay unchanged."
+            hint="At the top of the hour that starts a new show, the incoming DJ adds a short welcome to it, after the time check or on its own when the time check is off. It does not replace the handoff, and ordinary hourly checks stay unchanged."
             on={!!form.djBehaviour.showWelcome}
             onChange={on => setBehaviour({ showWelcome: on })}
           />

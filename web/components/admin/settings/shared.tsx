@@ -374,6 +374,8 @@ export interface DuckingForm {
 
 export interface DjBehaviourForm {
   showWelcome: boolean;
+  /** The automatic top-of-the-hour time check. */
+  hourlyTimeCheck: boolean;
   previewNextShow: boolean;
   sameHostAcknowledgement: boolean;
   /** Keep the music ducked for the whole multi-voice exchange instead of
@@ -390,6 +392,7 @@ export interface DjBehaviourForm {
  *  strings so a temporarily blank number input survives until Save. */
 export interface DjBehaviourValues {
   showWelcome?: boolean;
+  hourlyTimeCheck?: boolean;
   previewNextShow?: boolean;
   sameHostAcknowledgement?: boolean;
   holdDuckBetweenSpeakers?: boolean;
