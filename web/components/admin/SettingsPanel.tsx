@@ -1389,6 +1389,36 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
                       mixer: {data?.processorStatus?.enabled ? `${data.processorStatus.delayMs} ms` : 'off'}.
                     </div>
                   </div>
+
+                  <div className="field">
+                    <div className="flex items-center gap-2">
+                      <Label>Fall back to the dry mix after</Label>
+                      <Pill tone="ink">restart required</Pill>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="mono-num w-28"
+                        aria-label="External processor failover hold (milliseconds)"
+                        type="number"
+                        min={0}
+                        max={10000}
+                        step={100}
+                        value={form.processor.failoverMs}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                          setForm(f => (f ? { ...f, processor: { ...f.processor, failoverMs: e.target.value } } : f))
+                        }
+                      />
+                      <span className="text-[12px] text-muted">ms</span>
+                    </div>
+                    <SettingsFieldError path="processor.failoverMs" errors={fieldErrors} />
+                    <div className="field-hint">
+                      How long the processed audio may be missing or silent before the dry mix
+                      airs. A shorter dropout airs as a gap and the processed audio carries on,
+                      rather than jumping to the dry mix and back (each jump skips, then repeats,
+                      the processing delay). 0 cuts over at once. Once on the dry mix, the
+                      processed audio comes back after 2 s of steady sound.
+                    </div>
+                  </div>
                 </div>
               </Card>
             )}

@@ -73,6 +73,7 @@ Each one records a measured failure.
 - The fallback has no transition function: `fade.in`/`fade.out` act per track and would keep re-fading the dry chain's track marks after a switch. The hard cut was measured gapless both ways.
 - The send output is built with `start=false` and started and stopped by `stream_up`/`stream_down`, so an off-air mixer stops pulling the chain as before.
 - The fallback's first choice is the return gated by the silence check (`processed_gated`): the dry mix also airs while the return arrives silent and the dry mix, at the matching moment, was not. Levels are two `rms()` sums read by the 0.5 s status tick, and `output.dummy` keeps the return pulled while the dry mix airs, or a silent verdict could never clear. Never judge the return's silence alone: the idle gate, quiet passages and silent intros are silent on both sides.
+- The switch to the dry mix waits `processor.failoverMs` (default 2 s) of unbroken missing or silent return, and the way back waits 2 s of audible return. During the hold `processor_hold` fills the processed side with `blank()`, so a short dropout airs as a gap, not as a skip ahead and a repeat. `0` keeps the frame-level cut. This is not the dead-air guard (which must fire at once): that guard sits upstream on the music, and the hold is an operator-set bound on a gap the switch itself would make audible anyway.
 - While the processed return airs, `on_meta` delays the ICY insert by `processor.delayMs` in a `thread.run` that catches its own errors.
 
 ## Testing

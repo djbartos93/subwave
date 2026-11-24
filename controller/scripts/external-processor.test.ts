@@ -42,6 +42,7 @@ const {
   LIQ_PROCESSOR_SEND_PORT_PATH,
   LIQ_PROCESSOR_RETURN_PORT_PATH,
   LIQ_PROCESSOR_DELAY_MS_PATH,
+  LIQ_PROCESSOR_FAILOVER_MS_PATH,
 } = await import('../src/settings/liquidsoap.js');
 const { processorPatchSchema } = await import('../src/schemas/settings.js');
 const {
@@ -60,7 +61,7 @@ async function coldLoad(processor: unknown) {
   return (await coldLoadSettings(processor === undefined ? {} : { processor })).processor;
 }
 
-const ON = { enabled: true, host: '192.168.1.50', sendPort: 9000, returnPort: 9001, delayMs: 2500 };
+const ON = { enabled: true, host: '192.168.1.50', sendPort: 9000, returnPort: 9001, delayMs: 2500, failoverMs: 3000 };
 
 // ---------------------------------------------------------------------------
 // 1. Off by default
@@ -68,7 +69,7 @@ const ON = { enabled: true, host: '192.168.1.50', sendPort: 9000, returnPort: 90
 
 test('an absent block is off, and the mixer is told so', async () => {
   const p = await coldLoad(undefined);
-  assert.deepEqual(p, { enabled: false, host: '', sendPort: 9000, returnPort: 9001, delayMs: 0 });
+  assert.deepEqual(p, { enabled: false, host: '', sendPort: 9000, returnPort: 9001, delayMs: 0, failoverMs: 2000 });
   assert.deepEqual(DEFAULTS.processor, p);
   await settings.update({ station: 'SUB/WAVE test' });
   assert.equal(readFileSync(LIQ_PROCESSOR_ENABLED_PATH, 'utf8'), 'false');
@@ -76,6 +77,7 @@ test('an absent block is off, and the mixer is told so', async () => {
   assert.equal(readFileSync(LIQ_PROCESSOR_SEND_PORT_PATH, 'utf8'), '9000');
   assert.equal(readFileSync(LIQ_PROCESSOR_RETURN_PORT_PATH, 'utf8'), '9001');
   assert.equal(readFileSync(LIQ_PROCESSOR_DELAY_MS_PATH, 'utf8'), '0');
+  assert.equal(readFileSync(LIQ_PROCESSOR_FAILOVER_MS_PATH, 'utf8'), '2000');
 });
 
 // ---------------------------------------------------------------------------
@@ -87,12 +89,13 @@ test('a configured block survives a cold load', async () => {
 });
 
 test('load repairs each field on its own', async () => {
-  const p = await coldLoad({ enabled: 'yes', host: 'bad host\nname', sendPort: 70000, returnPort: 9100, delayMs: -5 });
+  const p = await coldLoad({ enabled: 'yes', host: 'bad host\nname', sendPort: 70000, returnPort: 9100, delayMs: -5, failoverMs: 10001 });
   assert.equal(p.enabled, false, 'only a literal true turns it on');
   assert.equal(p.host, '', 'a host the file cannot carry is dropped');
   assert.equal(p.sendPort, 9000);
   assert.equal(p.returnPort, 9100, 'a good sibling is kept');
   assert.equal(p.delayMs, 0);
+  assert.equal(p.failoverMs, 2000);
   assert.deepEqual(normalizeProcessorSettings(null), DEFAULTS.processor);
 });
 
@@ -109,12 +112,15 @@ test('a save writes every handoff file radio.liq reads', async () => {
   assert.equal(readFileSync(LIQ_PROCESSOR_SEND_PORT_PATH, 'utf8'), '9000');
   assert.equal(readFileSync(LIQ_PROCESSOR_RETURN_PORT_PATH, 'utf8'), '9001');
   assert.equal(readFileSync(LIQ_PROCESSOR_DELAY_MS_PATH, 'utf8'), '2500');
+  assert.equal(readFileSync(LIQ_PROCESSOR_FAILOVER_MS_PATH, 'utf8'), '3000');
 });
 
 test('an idempotent save asks for no restart, a changed delay does', async () => {
   await coldLoad(ON);
   assert.equal((await settings.update({ processor: ON })).requiresRestart, false);
   assert.equal((await settings.update({ processor: { delayMs: 2600 } })).requiresRestart, true);
+  assert.equal((await settings.update({ processor: { failoverMs: 0 } })).requiresRestart, true);
+  assert.equal(settings.get().processor.failoverMs, 0, '0 (the instant cut) is a value, not absent');
   assert.equal(settings.get().processor.host, '192.168.1.50', 'a partial patch keeps the rest');
 });
 
@@ -146,6 +152,8 @@ test('the schema refuses a host the handoff file cannot carry', () => {
   }
   assert.equal(processorPatchSchema.safeParse({ sendPort: 0 }).success, false);
   assert.equal(processorPatchSchema.safeParse({ delayMs: 10001 }).success, false);
+  assert.equal(processorPatchSchema.safeParse({ failoverMs: 10001 }).success, false);
+  assert.equal(processorPatchSchema.safeParse({ failoverMs: -1 }).success, false);
 });
 
 test('the key is in the route inventory, with field errors', () => {
@@ -232,14 +240,18 @@ test('radio.liq builds the stage after the idle gate, before the bus limiter', (
   const limiter = liq.indexOf('radio = compress(');
   assert.ok(idle > 0 && stage > idle, 'the stage must see the idle gate');
   assert.ok(limiter > stage, 'the limiter must catch the processed return too');
-  // A return that arrives silent while the dry mix is not airs the dry mix
-  // (the station keeps making sound), and the return stays pulled while it
-  // does, or the silent verdict could never see the processor come back.
-  assert.ok(liq.includes('processed_gated = source.available(processed_level, {not processor_return_silent()})'));
+  // The tick's verdict gates the return (missing or silent past the hold airs
+  // the dry mix: the station keeps making sound), and the return stays pulled
+  // while it does, or the tick could never see the processor come back.
+  assert.ok(liq.includes('processed_gated = source.available(processed_side, {processor_use_return()})'));
+  // With a hold, a dropout airs as a gap on the processed side rather than
+  // cutting to the dry mix at the first empty frame.
+  assert.match(liq, /fallback\(id="processor_hold", track_sensitive=false, \[processed_level, blank\(id="processor_gap"\)\]\)/);
+  assert.match(liq, /not arriving and processor_wet_missing_for\(\) >= processor_failover_s/);
   assert.ok(liq.includes('output.dummy(id="processor_return_meter", fallible=true, processed_level)'));
   // The verdict compares with the dry mix at the matching moment, never the
   // return's silence alone: the idle gate is silent on both sides.
-  assert.match(liq, /and processor_wet_silent_for\(\) >= processor_silent_after_s\s+and processor_dry_audible_when_return_was\(\)/);
+  assert.match(liq, /processor_wet_silent_for\(\) >= processor_silent_after_s\s+and processor_dry_audible_when_return_was\(\)/);
   // The send follows the on-air lifecycle, so an off-air mixer stops pulling.
   assert.match(liq, /id="processor_send",[\s\S]*?start=false,/);
   assert.match(liq, /def stream_up\(\)[\s\S]*?start_processor\(\)/);

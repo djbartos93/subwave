@@ -45,6 +45,7 @@ export function dangerSavePayload(form: FormState) {
       sendPort: n.int('processor.sendPort', form.processor.sendPort),
       returnPort: n.int('processor.returnPort', form.processor.returnPort),
       delayMs: n.int('processor.delayMs', form.processor.delayMs),
+      failoverMs: n.int('processor.failoverMs', form.processor.failoverMs),
     },
     maxTrackLengthMode: form.maxTrackLengthMode,
     maxTrackSeconds: n.int('maxTrackSeconds', form.maxTrackSeconds),
