@@ -152,7 +152,7 @@ export const SECTIONS = [
     // transition effects stay here by path, or editing them alone never shows
     // this section's save bar.
     formKeys: [
-      'crossfadeDuration', 'ducking', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'stream', 'loudness',
+      'crossfadeDuration', 'ducking', 'duckRamp', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'stream', 'loudness',
       'transitions.equalPowerCrossfade', 'transitions.fadeAudibleEnd', 'transitions.fadeAudibleEndDb',
       'transitions.tailFromCurve', 'transitions.effects',
     ],
@@ -179,6 +179,7 @@ export const RESTART_PATHS: readonly string[] = [
   'transitions.equalPowerCrossfade',
   'ducking.voice',
   'ducking.intro',
+  'duckRamp',
   'archive.enabled',
   'archive.bitrate',
   'stream.opusEnabled',
@@ -374,6 +375,7 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
   { label: 'Crossfade duration', section: 'broadcast', card: 'Crossfade', keywords: 'overlap seams transition restart' },
   { label: 'DJ over silence duck depth', section: 'broadcast', card: 'Duck depth', keywords: 'ducking voice smooth_add say idents heavy restart' },
   { label: 'DJ over a track duck depth', section: 'broadcast', card: 'Duck depth', keywords: 'ducking intro talk over link light smooth_add restart' },
+  { label: 'Duck timing', section: 'broadcast', card: 'Duck timing', keywords: 'ducking fade fader ramp attack release speed duration random range smooth_duck restart' },
   { label: 'Pair-aware transitions', section: 'stems', card: 'Stem transitions', keywords: 'pair drain successor crossfade' },
   { label: 'Stem cache', section: 'stems', card: 'Stem transitions', keywords: 'demucs drums bass vocals disk' },
   { label: 'Stem cache budget', section: 'stems', card: 'Stem transitions', keywords: 'gb evict oldest' },

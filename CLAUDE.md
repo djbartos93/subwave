@@ -108,7 +108,7 @@ The pieces are Broadcast (Icecast + Liquidsoap), Controller (Express, ESM, TypeS
 
 **Audio** (`liquidsoap/CLAUDE.md`)
 - Keep fade duration equal to the cross buffer; vary the buffer, not the fade.
-- Ducking is `smooth_add`, never an RMS follower; `p` is the fraction of the music left up.
+- Ducking is `smooth_add`'s shape (radio.liq's `smooth_duck` copy, with a ramp range per direction), never an RMS follower; `p` is the fraction of the music left up. Each voice layer's lead-in lasts its longest down ramp, and the controller budgets speech by the ramps the running mixer loaded (`duck-ramps.json`), never the saved setting (`broadcast.md`).
 - Every transition effect runs on Liquidsoap's single streaming thread, so its cost is its shape: the dissolve sums its combs and subtracts the dry once, never per tap.
 - Both sides of a rendered seam are gained by `music/loudness.ts` `resolveGainDb`, never from the analyzer's LUFS.
 - The Opus encoder is hard CBR (`vbr="none"`): `<burst-size>` is bytes, and VBR idle silence stretched a new listener's burst back past the pause (#2138).

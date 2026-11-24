@@ -5,7 +5,7 @@
 // bitrates, to size each burst, and hand them on as SUBWAVE_*_BITRATE (#2143);
 // radio.liq reads those files itself only when run without that handoff.
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { STATE_DIR } from '../config.js';
 import { DEFAULTS } from './defaults.js';
@@ -13,12 +13,25 @@ import { DEFAULTS } from './defaults.js';
 import { mixerJingleRatioFile } from '../broadcast/jingle-rotate.js';
 // Hosted stations: the station's bitrate ceiling (SUBWAVE_MAX_BITRATE).
 import { capStreamBitrates } from '../setup/hosted.js';
+// Pure policy module, importing only schemas/settings.ts.
+import { leadinFileName, rampFileContents, type DuckRampLayer } from '../broadcast/duck-ramp-policy.js';
+import { DUCK_RAMP_LAYERS } from '../schemas/settings.js';
+import { writeSilentWav } from '../audio/wav-silence.js';
 
 export const LIQ_JINGLE_RATIO_PATH = `${STATE_DIR}/liquidsoap_jingle_ratio.txt`;
 export const LIQ_CROSSFADE_PATH = `${STATE_DIR}/liquidsoap_crossfade.txt`;
 // radio.liq's `smooth_add` `p` on the heavy voice layer and the light intro one.
 export const LIQ_DUCK_VOICE_PATH = `${STATE_DIR}/liquidsoap_duck_voice.txt`;
 export const LIQ_DUCK_INTRO_PATH = `${STATE_DIR}/liquidsoap_duck_intro.txt`;
+// Duck ramp timing (duckRamp.<layer>): "downMin downMax upMin upMax" seconds,
+// one file per smooth_duck layer.
+export const liqDuckRampPath = (layer: DuckRampLayer) => `${STATE_DIR}/liquidsoap_duck_ramp_${layer}.txt`;
+// The silent lead-ins the two voice layers push ahead of a clip, one per
+// length (duck-ramp-policy.ts leadinFileName). Named by length and never
+// rewritten, so a save before a mixer restart cannot change the lead-in the
+// running mixer chose at startup. radio.liq falls back to /sounds/leadin.wav
+// when its file is missing.
+export const LEADIN_DIR = `${STATE_DIR}/leadin`;
 // Plain crossfade curve (transitions.equalPowerCrossfade). Same read-once lifecycle.
 export const LIQ_EQUAL_POWER_CROSSFADE_PATH = `${STATE_DIR}/liquidsoap_equal_power_crossfade.txt`;
 export const LIQ_ARCHIVE_ENABLED_PATH = `${STATE_DIR}/liquidsoap_archive_enabled.txt`;
@@ -93,6 +106,11 @@ export async function writeLiquidsoapSettings(s) {
   // Defaulted like `station`: `undefined` in the handoff file unducks the DJ.
   await writeFile(LIQ_DUCK_VOICE_PATH, String(s.ducking?.voice ?? DEFAULTS.ducking.voice));
   await writeFile(LIQ_DUCK_INTRO_PATH, String(s.ducking?.intro ?? DEFAULTS.ducking.intro));
+  const ramps = s.duckRamp ?? DEFAULTS.duckRamp;
+  for (const layer of DUCK_RAMP_LAYERS) {
+    await writeFile(liqDuckRampPath(layer), rampFileContents(ramps[layer] ?? DEFAULTS.duckRamp[layer]));
+  }
+  await ensureLeadinWavs(s);
   // Only an explicit true writes "true": absent or malformed stays linear.
   await writeFile(LIQ_EQUAL_POWER_CROSSFADE_PATH, String(s.transitions?.equalPowerCrossfade === true));
   await writeFile(LIQ_ARCHIVE_ENABLED_PATH, s.archive.enabled ? 'true' : 'false');
@@ -109,3 +127,28 @@ export async function writeLiquidsoapSettings(s) {
   );
 }
 
+// Both voice layers' lead-ins, for the save above and for boot
+// (settings.ensureLiquidsoapSettingsFile), so a cleared leadin/ folder is
+// refilled before the mixer next starts.
+export async function ensureLeadinWavs(s): Promise<void> {
+  const ramps = s.duckRamp ?? DEFAULTS.duckRamp;
+  for (const layer of ['voice', 'intro'] as const) {
+    await ensureLeadinWav(ramps[layer] ?? DEFAULTS.duckRamp[layer]);
+  }
+}
+
+// Writes the lead-in for a voice layer's ramp if it is not on disk yet. A
+// failure is logged and survivable: radio.liq airs the shipped 0.8 s lead-in
+// when the file is missing.
+async function ensureLeadinWav(ramp: { downMax: number }): Promise<void> {
+  const path = `${LEADIN_DIR}/${leadinFileName(ramp as never)}`;
+  try {
+    await access(path);
+    return;
+  } catch { /* missing: write it */ }
+  try {
+    await writeSilentWav(path, ramp.downMax * 1000);
+  } catch (err) {
+    console.warn(`[settings] could not write ${path}: ${(err as Error).message}`);
+  }
+}

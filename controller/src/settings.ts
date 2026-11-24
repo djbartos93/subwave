@@ -127,6 +127,13 @@ import {
 } from './schemas/settings.js';
 import { jinglePlacement, jingleRotateOwner, setJingleRotateOwner } from './broadcast/jingle-rotate.js';
 import { scheduleArmChanged } from './music/tag-schedule-policy.js';
+import {
+  duckRampIssue,
+  mergeDuckRamps,
+  normalizeDuckRamps,
+  type DuckRamp,
+  type DuckRampLayer,
+} from './broadcast/duck-ramp-policy.js';
 import { minTrackSeconds, peek, setCache } from './settings/store.js';
 import {
   SKILL_RENAMES,
@@ -165,6 +172,7 @@ import {
   LIQ_STREAM_BITRATE_PATH,
   LIQ_STREAM_BUFFER_SECONDS_PATH,
   reconcileStreamMountFiles,
+  ensureLeadinWavs,
   writeLiquidsoapSettings,
 } from './settings/liquidsoap.js';
 
@@ -496,6 +504,9 @@ export async function load() {
       voice: normalizeDuckDepth(stored.ducking?.voice, DEFAULTS.ducking.voice),
       intro: normalizeDuckDepth(stored.ducking?.intro, DEFAULTS.ducking.intro),
     },
+    // Repaired field by field (broadcast/duck-ramp-policy.ts): a hand-edited
+    // value reaches radio.liq as a handoff file.
+    duckRamp: normalizeDuckRamps(stored.duckRamp),
     maxTrackLengthMode: stored.maxTrackLengthMode === 'exclude' ? 'exclude' : 'cut',
     maxTrackSeconds: coerceMaxTrackSeconds(rawMaxTrackSec(stored), false) ?? DEFAULTS.maxTrackSeconds,
     // Station default for the show-boundary fade (#1574). Anything but an
@@ -1511,6 +1522,17 @@ export async function prepareUpdate(patch, { themeIds }: { themeIds?: ReadonlySe
       next.ducking.intro = dk.intro;
       restart = true;
     }
+  }
+  if ('duckRamp' in patch) {
+    const dr = parseSettingsPatchKey<Partial<Record<DuckRampLayer, Partial<DuckRamp>>>>('duckRamp', patch.duckRamp);
+    // Whole-layer rules on the merged state: a patch may move one end of a range.
+    const merged = mergeDuckRamps(cur.duckRamp, dr);
+    const issue = duckRampIssue(merged);
+    if (issue) throw new Error(issue);
+    // Read at mixer startup, so a change is a restart; an untouched block
+    // posted with the rest of the panel is not.
+    if (JSON.stringify(merged) !== JSON.stringify(cur.duckRamp)) restart = true;
+    next.duckRamp = merged;
   }
   if ('maxTrackLengthMode' in patch) {
     next.maxTrackLengthMode = parseSettingsPatchKey('maxTrackLengthMode', patch.maxTrackLengthMode);
@@ -2893,5 +2915,6 @@ export async function ensureLiquidsoapSettingsFile(): Promise<{ rewroteMountFile
     await writeLiquidsoapSettings(s);
     return { rewroteMountFiles: [] };
   }
+  await ensureLeadinWavs(s);
   return { rewroteMountFiles: await reconcileStreamMountFiles(s) };
 }

@@ -1,6 +1,8 @@
 // Serialize handoff writes per file until Liquidsoap consumes them. airVoice also serializes
 // playback across voice channels and waits for active jingles. #140, #310, #997.
 
+import { voiceLeadinMs, voiceTailMs } from '../duck-ramp-status.js';
+import { DEFAULT_LEADIN_MS, DEFAULT_TAIL_MS } from '../duck-ramp-policy.js';
 import { existsSync, readFileSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
@@ -67,13 +69,21 @@ let _voiceChain: Promise<void> = Promise.resolve();
 let _voiceHolders = 0;
 export function voiceBusy(): boolean { return _voiceHolders > 0; }
 
-// /sounds/leadin.wav, pushed before every spoken clip except a batched exchange's
-// continuation line (subwave_no_leadin, see airVoiceExchange).
-export const VOICE_LEADIN_MS = 800;
-const VOICE_TAIL_MS = 700;     // duck ramp-back + poll/scheduling slack
+// The silent lead-in, pushed before every spoken clip except a batched
+// exchange's continuation line (subwave_no_leadin, see airVoiceExchange), and
+// the duck's release plus poll/scheduling slack after it. Both follow the duck
+// ramps the RUNNING mixer loaded (duck-ramp-status.ts, settings.duckRamp); the
+// constants are their values at the default ramps, which a mixer that predates
+// the duck-ramps.json marker runs.
+export const VOICE_LEADIN_MS = DEFAULT_LEADIN_MS;
+export const VOICE_TAIL_MS = DEFAULT_TAIL_MS;
 // Forecast-only delay covers mixer polling and the silent lead-in. Actual air time comes
 // from the marker. #1382.
-export const HANDOFF_TO_AIR_MS = 250 + VOICE_LEADIN_MS;
+const HANDOFF_POLL_MS = 250;
+export const HANDOFF_TO_AIR_MS = HANDOFF_POLL_MS + VOICE_LEADIN_MS;
+export function handoffToAirMs(): number {
+  return HANDOFF_POLL_MS + voiceLeadinMs();
+}
 // Cap a single hold so a wildly-wrong duration estimate (or a clip that never
 // really aired) can't wedge the voice channel for minutes.
 export const VOICE_HOLD_MAX_MS = 90_000;
@@ -82,7 +92,7 @@ export const VOICE_HOLD_MAX_MS = 90_000;
 // host. Past it the mixer has refused the ID. A start later than this only
 // releases the lock early, and the mixer still drops the ID the moment other
 // speech is queued.
-const OVERLAY_START_GRACE_MS = HANDOFF_TO_AIR_MS + 2_500;
+const overlayStartGraceMs = () => handoffToAirMs() + 2_500;
 
 // What a caller gets back once its clip has been handed to Liquidsoap. The
 // handoff itself is still awaited (this resolves at the same moment airVoice
@@ -127,7 +137,7 @@ export function airInEstimate(
   const jingleWait = jingleWaitMs(now, jingleClearAt, jingleWindowMs);
   const chainWait = Math.max(0, chainFreeAt - now);
   const waitMs = Math.max(chainWait, jingleWait);
-  return { waitMs, estimatedAirInMs: waitMs + HANDOFF_TO_AIR_MS };
+  return { waitMs, estimatedAirInMs: waitMs + handoffToAirMs() };
 }
 
 interface AirVoiceOptions {
@@ -160,7 +170,7 @@ export async function airVoice(
   // wrapping — the annotate URI isn't a real file. The wrapped URI is only what
   // gets written to the handoff file for Liquidsoap to consume.
   const clipMs = clipDurationMs(wavPath, text);
-  const holdMs = Math.min(VOICE_HOLD_MAX_MS, clipMs + VOICE_LEADIN_MS + VOICE_TAIL_MS);
+  const holdMs = Math.min(VOICE_HOLD_MAX_MS, clipMs + voiceLeadinMs() + voiceTailMs());
   const voiceId = stableVoiceId || mintVoiceId();
   const gain = annotatedGainDb(wavPath, gainDb);
   const uri = voiceUri(wavPath, gain, voiceId, pauseDeliveryId, { jingleOverlay, jingleOverlayTrackAt });
@@ -203,9 +213,9 @@ export async function airVoice(
   const hold = (written: boolean) => {
     if (!written) return undefined;
     if (!jingleOverlay) return sleep(holdMs);
-    return Promise.race([aired, sleep(OVERLAY_START_GRACE_MS).then(() => null)])
+    return Promise.race([aired, sleep(overlayStartGraceMs()).then(() => null)])
       .then(at => at == null ? undefined
-        : sleep(Math.min(VOICE_HOLD_MAX_MS, Math.max(0, at + clipMs + VOICE_TAIL_MS - Date.now()))));
+        : sleep(Math.min(VOICE_HOLD_MAX_MS, Math.max(0, at + clipMs + voiceTailMs() - Date.now()))));
   };
   _voiceChain = turn.then(hold)
     .then(() => {}, () => {}).finally(() => { _voiceHolders--; });
@@ -268,7 +278,7 @@ export function batchExchangeDelivery(): boolean {
 // polls that one file every VOICE_MARKER_POLL_MS. A shorter window can fall
 // between two polls, and the line then waits out its whole air timeout and
 // appends its session turn after the speakers who followed it. The lead-in
-// keeps N's marker up for another VOICE_LEADIN_MS, which no poll can miss, so a
+// keeps N's marker up for another lead-in (voiceLeadinMs), which no poll can miss, so a
 // line skips it only when the line before it has a MEASURED length of at least
 // CONTINUATION_MIN_PREV_MS (two polls, one spare for a busy event loop). An
 // estimated length keeps the lead-in: the safe direction is 800 ms of air.
@@ -283,8 +293,8 @@ export async function airVoiceExchange(
     const clipMs = clipDurationMs(clip.wavPath, clip.text);
     const prevMeasuredMs = index > 0 ? measuredClipDurationMs(clips[index - 1].wavPath) : null;
     const continuation = prevMeasuredMs != null && prevMeasuredMs >= CONTINUATION_MIN_PREV_MS;
-    const leadinMs = continuation ? 0 : VOICE_LEADIN_MS;
-    const holdMs = Math.min(VOICE_HOLD_MAX_MS, clipMs + leadinMs + VOICE_TAIL_MS);
+    const leadinMs = continuation ? 0 : voiceLeadinMs();
+    const holdMs = Math.min(VOICE_HOLD_MAX_MS, clipMs + leadinMs + voiceTailMs());
     const voiceId = mintVoiceId();
     const gain = annotatedGainDb(clip.wavPath, clip.gainDb);
     return {
@@ -346,7 +356,7 @@ export async function airVoiceExchange(
           // lead-in that completes the duck before its first word.
           written = await writeHandoff(path, () => {
             if (p.leadinMs > 0 || !existsSync(path)) return p.uri;
-            restoredLeadinMs = VOICE_LEADIN_MS;
+            restoredLeadinMs = voiceLeadinMs();
             return p.leadinUri;
           }, { beforeWrite });
         } catch (err) {
@@ -556,7 +566,7 @@ export function measuredClipDurationMs(path: string): number | null {
 // continuation line skips its lead-in, so budgeting every line at this figure
 // over-estimates such an exchange, the safe direction.
 export function speechDurationMs(wavPath: string, text: string): number {
-  return clipDurationMs(wavPath, text) + VOICE_LEADIN_MS + VOICE_TAIL_MS;
+  return clipDurationMs(wavPath, text) + voiceLeadinMs() + voiceTailMs();
 }
 
 // ~140 wpm, deliberately on the slow side so we over-, never under-estimate

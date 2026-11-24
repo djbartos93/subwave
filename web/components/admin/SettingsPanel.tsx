@@ -46,6 +46,7 @@ import { SettingsSearch, type SettingsJump } from './settings/SettingsSearch';
 import { deepLinkJump, type SettingsQuery } from './settings/settings-link';
 import { TtsSection } from './settings/TtsSection';
 import { DjBehaviourSection } from './settings/DjBehaviourSection';
+import { DuckRampCard } from './settings/DuckRampCard';
 import { LlmSection } from './settings/LlmSection';
 import { SearchSection } from './settings/SearchSection';
 import { LibrarySection } from './settings/LibrarySection';
@@ -1049,7 +1050,7 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
               </Card>
             )}
 
-            <Advanced note="crossfade, duck depth, transitions, loudness and the extra stream mounts">
+            <Advanced note="crossfade, duck depth and timing, transitions, loudness and the extra stream mounts">
             {form && (
               <Card title="Crossfade" sub="track transition overlap">
                 <div className="grid gap-3">
@@ -1246,6 +1247,15 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
                   </div>
                 </div>
               </Card>
+            )}
+
+            {form && (
+              <DuckRampCard
+                form={form}
+                setForm={u => setForm(f => (f ? u(f) : f))}
+                fieldErrors={fieldErrors}
+                current={data?.values?.duckRamp}
+              />
             )}
 
             {form && (
@@ -1980,7 +1990,7 @@ export default function SettingsPanel({ hosted = false }: { hosted?: boolean }) 
               onSave={saveBroadcast}
               saveLabel="Save broadcast & mixer"
               errors={fieldErrors}
-              ownedKeys={['crossfadeDuration', 'ducking', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'loudness', 'stream', 'transitions.equalPowerCrossfade', 'transitions.fadeAudibleEnd', 'transitions.fadeAudibleEndDb', 'transitions.effects']}
+              ownedKeys={['crossfadeDuration', 'ducking', 'duckRamp', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'loudness', 'stream', 'transitions.equalPowerCrossfade', 'transitions.fadeAudibleEnd', 'transitions.fadeAudibleEndDb', 'transitions.effects']}
             />
           </>
         )}

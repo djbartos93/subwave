@@ -236,6 +236,12 @@ export const config = {
     // be saved ahead of the next render. Absent (an older broadcast image) falls
     // back to the setting. Read via broadcast/stream-mounts.ts.
     streamMountsFile: `${STATE_DIR}/stream-mounts.json`,
+    // The duck ramps radio.liq loaded at startup ({voice, intro, sfx}, each
+    // {downMin, downMax, upMin, upMax} seconds). What the controller budgets
+    // the lead-in and the duck's release by, since a saved change waits for a
+    // mixer restart. Absent (an older broadcast image) reads as the defaults.
+    // Read via broadcast/duck-ramp-status.ts.
+    duckRampsFile: `${STATE_DIR}/duck-ramps.json`,
   },
   session: {
     // The live DJ session (chat-history JSON); archived into `dir` on roll.

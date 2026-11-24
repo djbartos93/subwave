@@ -97,6 +97,7 @@ router.get('/settings', requireAdmin, async (req, res) => {
         jinglePlacement: s.jinglePlacement,
         crossfadeDuration: s.crossfadeDuration,
         ducking: s.ducking,
+        duckRamp: s.duckRamp,
         // Repaired on the way out via the same function the air path uses: a
         // profile switch or backup restore can seed an off-step value (#1576).
         handover: { offsetMinutes: handoverOffsetMinutes() },

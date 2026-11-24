@@ -39,6 +39,12 @@ export function dangerSavePayload(form: FormState) {
       voice: n.float('ducking.voice', form.ducking.voice),
       intro: n.float('ducking.intro', form.ducking.intro),
     },
+    duckRamp: Object.fromEntries((['voice', 'intro', 'sfx'] as const).map(layer => [layer, {
+      downMin: n.float(`duckRamp.${layer}.downMin`, form.duckRamp[layer].downMin),
+      downMax: n.float(`duckRamp.${layer}.downMax`, form.duckRamp[layer].downMax),
+      upMin: n.float(`duckRamp.${layer}.upMin`, form.duckRamp[layer].upMin),
+      upMax: n.float(`duckRamp.${layer}.upMax`, form.duckRamp[layer].upMax),
+    }])),
     maxTrackLengthMode: form.maxTrackLengthMode,
     maxTrackSeconds: n.int('maxTrackSeconds', form.maxTrackSeconds),
     fadeAtShowEnd: form.fadeAtShowEnd,
