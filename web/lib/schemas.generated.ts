@@ -1786,6 +1786,10 @@ export const personasSchema = z
   .min(1, `personas must be an array of 1-${PERSONA_LIMIT} entries`)
   .max(PERSONA_LIMIT, `personas must be an array of 1-${PERSONA_LIMIT} entries`);
 
+// POST /personas submits ONE persona under a `persona` key and merges it
+// server-side, the same body shape as POST /shows.
+export const personaPostSchema = z.object({ persona: personaSchema });
+
 /**
  * Every per-field repair the LOAD path applies before parsing. `undefined` lets
  * the schema's own default apply; each repair lands on a value the strict path

@@ -474,4 +474,107 @@ export class SubwaveClient {
       admin: true,
     });
   }
+
+  // ------------------------------------------------- admin: authoring --
+  // Personas, shows, the weekly schedule and skills. The controller validates
+  // every write with the same schema the admin panel uses, so a bad field comes
+  // back as a 400 whose message names it.
+
+  /**
+   * GET /settings — the full admin settings read. The authoring tools take the
+   * persona roster, shows and schedule from `values`, and the TTS engine and
+   * voice lists from `tts`, because the public reads withhold souls, dials and
+   * voices.
+   */
+  async adminSettings(): Promise<AdminSettings> {
+    return this.call<AdminSettings>("/settings", { admin: true });
+  }
+
+  /** POST /personas — create (no id) or replace (known id) one persona. */
+  async savePersona(persona: Record<string, unknown>): Promise<{ persona: Record<string, unknown> | null }> {
+    return this.call("/personas", { method: "POST", admin: true, body: { persona } });
+  }
+
+  /** DELETE /personas/:id — the hosted shows and their schedule hours go with it. */
+  async deletePersona(id: string): Promise<Record<string, unknown>> {
+    return this.call(`/personas/${encodeURIComponent(id)}`, { method: "DELETE", admin: true });
+  }
+
+  /** POST /shows — create (no id) or replace (known id) one show. */
+  async saveShow(show: Record<string, unknown>): Promise<{ show: Record<string, unknown> | null }> {
+    return this.call("/shows", { method: "POST", admin: true, body: { show } });
+  }
+
+  /** DELETE /shows/:id — clears the show's schedule hours too. */
+  async deleteShow(id: string): Promise<Record<string, unknown>> {
+    return this.call(`/shows/${encodeURIComponent(id)}`, { method: "DELETE", admin: true });
+  }
+
+  /** PUT /schedule — replace the whole 7×24 grid; slots naming no saved show are dropped and counted. */
+  async saveSchedule(schedule: ScheduleWeek): Promise<{ schedule: ScheduleWeek; dropped: number }> {
+    return this.call("/schedule", { method: "PUT", admin: true, body: { schedule } });
+  }
+
+  /** GET /dj/skills/:kind/file — one skill's SKILL.md fields, as the edit form reads them. */
+  async getSkillFile(kind: string): Promise<Record<string, unknown>> {
+    return this.call(`/dj/skills/${encodeURIComponent(kind)}/file`, { admin: true });
+  }
+
+  /** POST /dj/skills — create a custom prompt-only skill (it arrives disabled). */
+  async createSkill(body: Record<string, unknown>): Promise<{ skills: SkillCatalogEntry[] }> {
+    return this.call("/dj/skills", { method: "POST", admin: true, body });
+  }
+
+  /** PUT /dj/skills/:kind/file — rewrite a skill's SKILL.md (built-in or custom). */
+  async updateSkill(kind: string, body: Record<string, unknown>): Promise<{ skills: SkillCatalogEntry[] }> {
+    return this.call(`/dj/skills/${encodeURIComponent(kind)}/file`, { method: "PUT", admin: true, body });
+  }
+
+  /** DELETE /dj/skills/:slug — remove a custom skill's folder. */
+  async deleteSkill(slug: string): Promise<{ skills: SkillCatalogEntry[] }> {
+    return this.call(`/dj/skills/${encodeURIComponent(slug)}`, { method: "DELETE", admin: true });
+  }
+
+  /** POST /dj/skill-toggle — turn a skill's automatic airing on or off. */
+  async toggleSkill(name: string, on: boolean): Promise<{ skills: SkillCatalogEntry[] }> {
+    return this.call("/dj/skill-toggle", { method: "POST", admin: true, body: { name, on } });
+  }
+
+  /** PUT /dj/skills/:slug/personas — exactly which personas run this skill. */
+  async setSkillPersonas(
+    slug: string,
+    personaIds: string[],
+  ): Promise<{ personas: { id: string; name: string; hasSkill: boolean }[] }> {
+    return this.call(`/dj/skills/${encodeURIComponent(slug)}/personas`, {
+      method: "PUT",
+      admin: true,
+      body: { personaIds },
+    });
+  }
+}
+
+/** The 7×24 show grid: day 0 is Sunday, each day 24 hourly slots of a show id or null. */
+export type ScheduleWeek = Record<string, Array<string | null>>;
+
+/** One row of GET /dj/skills. Only the fields the authoring tools read are typed. */
+export interface SkillCatalogEntry {
+  name: string;
+  kind?: string;
+  label?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+/** The slice of GET /settings the authoring tools read. */
+export interface AdminSettings {
+  values: {
+    personas: Record<string, unknown>[];
+    activePersonaId: string;
+    shows: Record<string, unknown>[];
+    schedule: ScheduleWeek;
+    moods?: { name: string }[];
+    [key: string]: unknown;
+  };
+  tts?: Record<string, unknown>;
+  [key: string]: unknown;
 }

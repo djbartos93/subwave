@@ -27,6 +27,8 @@ import { router as jinglesRouter } from '../src/routes/jingles.js';
 import { router as statsRouter } from '../src/routes/stats.js';
 import { router as listenersRouter } from '../src/routes/listeners.js';
 import { router as lyricsRouter } from '../src/routes/lyrics.js';
+import { router as personasRouter } from '../src/routes/personas.js';
+import { router as showsRouter } from '../src/routes/shows.js';
 
 // Collect "GET /now-playing"-style keys from a router's stack.
 function routeKeys(router: any): Set<string> {
@@ -42,7 +44,7 @@ function routeKeys(router: any): Set<string> {
 }
 
 const real = new Set<string>();
-for (const r of [publicRouter, requestRouter, djRouter, sfxRouter, jinglesRouter, statsRouter, listenersRouter, lyricsRouter]) {
+for (const r of [publicRouter, requestRouter, djRouter, sfxRouter, jinglesRouter, statsRouter, listenersRouter, lyricsRouter, personasRouter, showsRouter]) {
   for (const k of routeKeys(r)) real.add(k);
 }
 

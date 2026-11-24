@@ -14,7 +14,7 @@ whole HTTP API (and a live playground), see [`api.md`](./api.md) or the admin
 
 ## The short version
 
-There are two ways to connect — both expose the **same twenty tools** from
+There are two ways to connect — both expose the **same thirty-six tools** from
 the **same source** (`controller/src/mcp/`):
 
 ```
@@ -29,7 +29,7 @@ Local alternative — stdio (runs from a repo clone via tsx):
 The tools own no state and almost no logic of their own — each is a typed
 wrapper over one controller HTTP endpoint (the one exception:
 `subwave_request_song` polls the request receipt so the agent gets an outcome,
-not a ticket). The model gets twenty tools; the controller does the real work
+not a ticket). The model gets thirty-six tools; the controller does the real work
 (LLM matching, track selection, TTS, queueing).
 
 **HTTP endpoint (recommended).** The controller serves MCP directly at
@@ -88,6 +88,21 @@ intent-shaped tools.
 | `subwave_list_jingles` | `GET /jingles` | admin | no |
 | `subwave_play_jingle` | `POST /jingles/:filename/play` | admin | airs a jingle at the next safe boundary |
 | `subwave_refresh_playlist` | `POST /dj/refresh-playlist` | admin | no (fallback playlist only) |
+| `subwave_list_personas` | `GET /settings` | admin | no |
+| `subwave_create_persona` | `POST /personas` | admin | no (until a show hosts it) |
+| `subwave_update_persona` | `GET /settings` + `POST /personas` | admin | the persona's next line |
+| `subwave_delete_persona` | `DELETE /personas/:id` | admin | removes its shows and their hours |
+| `subwave_list_shows` | `GET /settings` | admin | no |
+| `subwave_create_show` | `POST /shows` | admin | no (until it is scheduled) |
+| `subwave_update_show` | `GET /settings` + `POST /shows` | admin | the show, if on air |
+| `subwave_delete_show` | `DELETE /shows/:id` | admin | clears its hours |
+| `subwave_schedule_show` | `GET /settings` + `PUT /schedule` | admin | the weekly grid |
+| `subwave_get_skill` | `GET /dj/skills/:kind/file` | admin | no |
+| `subwave_create_skill` | `POST /dj/skills` | admin | no (arrives disabled) |
+| `subwave_update_skill` | `GET` + `PUT /dj/skills/:kind/file` | admin | the skill's next airing |
+| `subwave_delete_skill` | `DELETE /dj/skills/:slug` | admin | no |
+| `subwave_enable_skill` | `POST /dj/skill-toggle` | admin | lets the DJ air it |
+| `subwave_set_skill_personas` | `PUT /dj/skills/:slug/personas` | admin | which DJs run it |
 
 ### Read tools — `subwave_health`, `subwave_now_playing`, `subwave_station_state`, `subwave_schedule`, `subwave_session`
 
@@ -229,6 +244,32 @@ a second push of the same clip airs the announcement twice back to back. Calling
 again while the first is still waiting for its boundary is refused (`409`,
 `"… is already queued and hasn't aired yet"`) — treat that as "your press
 landed", not as a failure to retry. Two *different* announcements queue normally.
+
+### Authoring tools — personas, shows, the schedule and skills
+
+These build the station rather than drive it: an agent can write a persona,
+give it a show, put the show on the weekly grid and write skills for it. They
+live in `controller/src/mcp/authoring-tools.ts` and are all admin-only.
+
+- **Validation is the controller's.** Each write goes to the same route the
+  admin panel uses, and that route runs the shared schema, so a bad field comes
+  back as an error naming it. The tool input schemas only describe the fields.
+- **Updates take only the fields to change.** The persona and show routes
+  replace the record they are given, so an update tool reads the stored record
+  from `GET /settings`, lays the given fields over it and saves it whole. An
+  edit made to the same record in the admin panel between those two calls is
+  lost; other records are untouched. A partial persona `tts` merges into the
+  stored voice.
+- **A new persona without a voice gets the station's** (`engine: inherit`). Its
+  avatar is uploaded in the admin panel: `POST /personas` never takes one from
+  the body and an edit keeps the stored one.
+- **A new skill is prompt-only and disabled.** No tool can install or trust a
+  skill's `tool.mjs`. Code only runs after the operator reviews it in the admin
+  panel (`POST /dj/skills/:slug/tool/trust`), and an agent that could write and
+  trust code could run anything it wrote on the controller.
+- **A persona's `soul` is its system prompt** and reaches the air. An agent that
+  writes souls from material it read elsewhere can carry that material into
+  what the DJ says.
 
 ---
 

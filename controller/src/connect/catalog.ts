@@ -694,6 +694,141 @@ export const ENDPOINT_GROUPS: EndpointGroup[] = [
       },
     ],
   },
+  {
+    id: 'authoring',
+    label: 'Personas, Shows & Skills',
+    blurb:
+      'Create and edit the DJ personas, the shows and their weekly schedule, and ' +
+      'the DJ\'s skills. Admin-gated, and validated by the same rules as the admin ' +
+      'panel, so a bad field comes back as a 400 that names it. The full roster, ' +
+      'shows and schedule are read from GET /settings (values.personas, ' +
+      'values.shows, values.schedule).',
+    endpoints: [
+      {
+        method: 'POST',
+        path: '/personas',
+        summary: 'Create or replace a persona',
+        description:
+          'Saves ONE persona under a `persona` key. With no id (or an unknown one) it ' +
+          'is added to the roster; with a known id it replaces that persona whole, so ' +
+          'send every field. The avatar is never taken from the body: upload it with ' +
+          'POST /personas/:id/avatar. The persona does not go on air until a show ' +
+          'hosts it or it is made the default.',
+        auth: 'admin',
+        bodyExample: {
+          persona: {
+            name: 'Night Owl',
+            soul: 'A calm late-night selector who lets the records breathe.',
+            frequency: 'quiet',
+            tts: { engine: 'inherit', cloudProvider: 'openai', voice: '' },
+          },
+        },
+        responseExample: { persona: { id: 'p_night_owl', name: 'Night Owl', frequency: 'quiet' }, personas: [] },
+      },
+      {
+        method: 'DELETE',
+        path: '/personas/:id',
+        summary: 'Delete a persona',
+        description:
+          'Removes a persona, the shows it hosts and their schedule hours, and its ' +
+          'guest seats. The last persona cannot be deleted (409).',
+        auth: 'admin',
+        pathParams: [{ name: 'id', description: 'Persona id.', example: 'p_night_owl' }],
+        responseExample: { personas: [], activePersonaId: 'frequency', shows: [], schedule: {} },
+      },
+      {
+        method: 'POST',
+        path: '/shows',
+        summary: 'Create or replace a show',
+        description:
+          'Saves ONE show under a `show` key: added without a known id, replaced ' +
+          'whole with one. Its schedule hours are untouched; set them with PUT /schedule.',
+        auth: 'admin',
+        bodyExample: { show: { name: 'Late Feels', personaId: 'p_night_owl', topic: 'A slow midnight drift.', moods: ['night'] } },
+        responseExample: { show: { id: 's_late_feels', name: 'Late Feels', personaId: 'p_night_owl' }, shows: [] },
+      },
+      {
+        method: 'DELETE',
+        path: '/shows/:id',
+        summary: 'Delete a show',
+        description: 'Removes a show and clears its hours from the weekly schedule.',
+        auth: 'admin',
+        pathParams: [{ name: 'id', description: 'Show id.', example: 's_late_feels' }],
+        responseExample: { shows: [], schedule: {} },
+      },
+      {
+        method: 'PUT',
+        path: '/schedule',
+        summary: 'Save the weekly schedule',
+        description:
+          'Replaces the whole 7×24 grid: schedule[day][hour] is a show id or null, ' +
+          'day 0 is Sunday, hours in the station timezone. A slot naming a show that ' +
+          'is not saved is dropped and counted in `dropped`.',
+        auth: 'admin',
+        bodyExample: { schedule: { 0: Array(24).fill(null), 1: Array(24).fill(null), 2: Array(24).fill(null), 3: Array(24).fill(null), 4: Array(24).fill(null), 5: Array(24).fill(null), 6: Array(24).fill(null) } },
+        responseExample: { schedule: {}, dropped: 0 },
+      },
+      {
+        method: 'GET',
+        path: '/dj/skills/:kind/file',
+        summary: 'Read a skill',
+        description: 'One skill\'s SKILL.md fields (brief, label, cooldown, context, cron, tags), as the edit form reads them.',
+        auth: 'admin',
+        pathParams: [{ name: 'kind', description: 'Skill name.', example: 'weather' }],
+        responseExample: { kind: 'weather', custom: false, label: 'Weather', cooldown: '60m', context: 'clock, weather', brief: '…' },
+      },
+      {
+        method: 'POST',
+        path: '/dj/skills',
+        summary: 'Create a custom skill',
+        description:
+          'Creates a prompt-only skill. It arrives disabled; turn it on with ' +
+          'POST /dj/skill-toggle. Data tools (tool.mjs) are installed and reviewed in ' +
+          'the admin panel, never through this route.',
+        auth: 'admin',
+        bodyExample: { name: 'vinyl-fact', label: 'Vinyl fact', cooldown: '3h', brief: 'Share one short fact about the record that just played. Stay quiet if you know nothing true about it.' },
+        responseExample: { skills: [{ name: 'vinyl-fact', label: 'Vinyl fact', enabled: false, custom: true }] },
+      },
+      {
+        method: 'PUT',
+        path: '/dj/skills/:kind/file',
+        summary: 'Edit a skill',
+        description: 'Rewrites a skill\'s SKILL.md from the given fields (send them all). A skill\'s data tool is left as it is.',
+        auth: 'admin',
+        pathParams: [{ name: 'kind', description: 'Skill name.', example: 'vinyl-fact' }],
+        bodyExample: { label: 'Vinyl fact', cooldown: '2h', brief: 'Share one short fact about the record that just played.' },
+        responseExample: { skills: [] },
+      },
+      {
+        method: 'DELETE',
+        path: '/dj/skills/:slug',
+        summary: 'Delete a custom skill',
+        description: 'Removes a custom skill\'s folder. Built-ins cannot be deleted, only disabled.',
+        auth: 'admin',
+        pathParams: [{ name: 'slug', description: 'Custom skill name.', example: 'vinyl-fact' }],
+        responseExample: { skills: [] },
+      },
+      {
+        method: 'POST',
+        path: '/dj/skill-toggle',
+        summary: 'Enable or disable a skill',
+        description: 'Turns a skill\'s automatic airing on or off. A disabled skill still runs from POST /dj/skill.',
+        auth: 'admin',
+        bodyExample: { name: 'vinyl-fact', on: true },
+        responseExample: { skills: [] },
+      },
+      {
+        method: 'PUT',
+        path: '/dj/skills/:slug/personas',
+        summary: 'Choose which DJs run a skill',
+        description: 'Exactly these personas run the skill; every other persona loses it.',
+        auth: 'admin',
+        pathParams: [{ name: 'slug', description: 'Skill name.', example: 'vinyl-fact' }],
+        bodyExample: { personaIds: ['p_night_owl'] },
+        responseExample: { personas: [{ id: 'p_night_owl', name: 'Night Owl', hasSkill: true }] },
+      },
+    ],
+  },
 ];
 
 export const ENDPOINTS: EndpointDoc[] = ENDPOINT_GROUPS.flatMap(g => g.endpoints);
@@ -725,6 +860,21 @@ export const MCP_TOOLS: McpToolDoc[] = [
   { name: 'subwave_list_jingles', title: 'List jingles', description: 'The jingle library — idents and announcements, no length cap.', endpoint: 'GET /jingles', auth: 'admin' },
   { name: 'subwave_play_jingle', title: 'Air a jingle', description: 'Queue a jingle to air at the next safe boundary, at full level.', endpoint: 'POST /jingles/:filename/play', auth: 'admin', mutatesAir: true },
   { name: 'subwave_refresh_playlist', title: 'Refresh playlist', description: 'Rebuild the fallback auto-playlist.', endpoint: 'POST /dj/refresh-playlist', auth: 'admin' },
+  { name: 'subwave_list_personas', title: 'List personas', description: 'Every persona in full, plus the installed TTS voices.', endpoint: 'GET /settings', auth: 'admin' },
+  { name: 'subwave_create_persona', title: 'Create a persona', description: 'Add a DJ persona to the roster.', endpoint: 'POST /personas', auth: 'admin' },
+  { name: 'subwave_update_persona', title: 'Edit a persona', description: 'Change only the given fields on a persona.', endpoint: 'GET /settings + POST /personas', auth: 'admin' },
+  { name: 'subwave_delete_persona', title: 'Delete a persona', description: 'Remove a persona and the shows it hosts.', endpoint: 'DELETE /personas/:id', auth: 'admin' },
+  { name: 'subwave_list_shows', title: 'List shows', description: 'Every show in full, the weekly grid and the mood list.', endpoint: 'GET /settings', auth: 'admin' },
+  { name: 'subwave_create_show', title: 'Create a show', description: 'Add a show with a host, brief and music filters.', endpoint: 'POST /shows', auth: 'admin' },
+  { name: 'subwave_update_show', title: 'Edit a show', description: 'Change only the given fields on a show.', endpoint: 'GET /settings + POST /shows', auth: 'admin' },
+  { name: 'subwave_delete_show', title: 'Delete a show', description: 'Remove a show and its schedule hours.', endpoint: 'DELETE /shows/:id', auth: 'admin' },
+  { name: 'subwave_schedule_show', title: 'Schedule a show', description: 'Put a show on (or clear) hours of the weekly grid.', endpoint: 'GET /settings + PUT /schedule', auth: 'admin' },
+  { name: 'subwave_get_skill', title: 'Read a skill', description: 'One skill\'s full definition.', endpoint: 'GET /dj/skills/:kind/file', auth: 'admin' },
+  { name: 'subwave_create_skill', title: 'Create a skill', description: 'Add a custom prompt-only skill (arrives disabled).', endpoint: 'POST /dj/skills', auth: 'admin' },
+  { name: 'subwave_update_skill', title: 'Edit a skill', description: 'Change only the given fields on a skill.', endpoint: 'GET + PUT /dj/skills/:kind/file', auth: 'admin' },
+  { name: 'subwave_delete_skill', title: 'Delete a skill', description: 'Remove a custom skill.', endpoint: 'DELETE /dj/skills/:slug', auth: 'admin' },
+  { name: 'subwave_enable_skill', title: 'Enable a skill', description: 'Turn a skill\'s automatic airing on or off.', endpoint: 'POST /dj/skill-toggle', auth: 'admin' },
+  { name: 'subwave_set_skill_personas', title: 'Assign a skill', description: 'Choose exactly which personas run a skill.', endpoint: 'PUT /dj/skills/:slug/personas', auth: 'admin' },
 ];
 
 // ---------------------------------------------------------------------------

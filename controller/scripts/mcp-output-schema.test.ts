@@ -5,7 +5,7 @@
 // validates structured output with a JSON Schema 2020-12-only validator refuses
 // the tool outright ("unsupported dialect"), before it can read the result. For
 // an on-air tool that error can arrive after the action already ran, which
-// invites a retry and a double airing. `output()` in src/mcp/tools.ts clears
+// invites a retry and a double airing. `output()` in src/mcp/tool-result.ts clears
 // the line so each client reads the schema in its own default dialect.
 //
 // That is only correct while the schemas use nothing draft-07 and 2020-12 read
