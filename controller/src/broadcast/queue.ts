@@ -160,10 +160,10 @@ import {
   pendingVoiceStale,
 } from './queue/kinds.js';
 import type { PendingTalk } from './queue/kinds.js';
+import { voiceLeadinMs } from './duck-ramp-status.js';
 import {
   BED_MARKER_FRESH_MS,
-  VOICE_LEADIN_MS,
-  HANDOFF_TO_AIR_MS,
+  handoffToAirMs,
   VOICE_HOLD_MAX_MS,
   airVoice,
   airVoiceExchange,
@@ -3648,7 +3648,7 @@ class Queue {
   // to garnish a spoken line, and by onTrackStarted for the between-track
   // stingers applyMixTransition arms at drain time.
   //
-  // `underVoice` offsets the write by the voice lead-in (VOICE_LEADIN_MS) so a
+  // `underVoice` offsets the write by the voice lead-in (voiceLeadinMs) so a
   // stinger meant to sit under a spoken line lands with the DJ's first word
   // instead of during the channel's silent pre-roll. Transition stingers leave
   // it false — they have no voice to align to and must fire at the crossfade.
@@ -3660,7 +3660,7 @@ class Queue {
         this.log('error', `Unknown sound effect: ${name}`);
         return;
       }
-      if (underVoice) await sleep(VOICE_LEADIN_MS);
+      if (underVoice) await sleep(voiceLeadinMs());
       await writeHandoff(config.liquidsoap.sfxFile, path);
       this.log('sfx', name);
       session.appendTurn({ role: 'segment', kind: 'sfx', text: name });
@@ -3898,7 +3898,7 @@ class Queue {
           && overlayOpening({ elapsedMs, crossfadeMs, headWindowMs: OVERLAY_HEAD_WINDOW_MS }) === 'open'
           && overlayFits({
             elapsedMs,
-            windowMs: windowMs + HANDOFF_TO_AIR_MS,
+            windowMs: windowMs + handoffToAirMs(),
             remainingMs: mixer.remainingMs - (Date.now() - checkedAt),
             exitCrossfadeMs,
             runwayMs: vocalRunwayMs(item.track),

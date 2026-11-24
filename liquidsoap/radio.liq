@@ -52,6 +52,7 @@ voice_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/voice")
 intro_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/intro")
 jingle_overlay_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/jingle-overlay")
 processor_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/processor")
+duck_ramps_tmp_dir = ensure_tmp_dir("#{state_dir}/tmp/duck-ramps")
 
 # MUSIC STARVE GUARD (#1300 bug 7) — the latch only; its tick is registered far
 # below, after idle_mode exists. Declared here because the jingles gate reads it
@@ -162,6 +163,59 @@ if file.exists("#{state_dir}/liquidsoap_duck_intro.txt") then
   raw = string.trim(file.contents("#{state_dir}/liquidsoap_duck_intro.txt"))
   v = float_of_string(default=0.30, raw)
   if v >= 0.0 and v <= 1.0 then duck_intro := v end
+end
+
+# Duck ramp timing (duckRamp.<layer>, controller/src/broadcast/duck-ramp-policy.ts):
+# "downMin downMax upMin upMax" seconds, how long a layer takes to pull the music
+# down when a clip starts and to bring it back up when the clip ends. smooth_duck
+# (DUCKING block below) draws a fresh value inside each range for every clip, so
+# a min equal to its max is a fixed time. The defaults are the durations this
+# file shipped as smooth_add literals. The controller bounds the values on save
+# and load; this re-checks because a hand-edited file reaches the mixer directly,
+# and anything else keeps the layer's default.
+def read_duck_ramp(layer, dflt) =
+  ramp_path = "#{state_dir}/liquidsoap_duck_ramp_#{layer}.txt"
+  if file.exists(ramp_path) then
+    raw = string.trim(file.contents(ramp_path))
+    parts = list.filter(fun (x) -> x != "", string.split(separator=" ", raw))
+    v = list.map(fun (x) -> float_of_string(default=-1., x), parts)
+    in_bounds = list.for_all(fun (x) -> x >= 0.1 and x <= 5., v)
+    if
+      list.length(v) == 4 and in_bounds
+      and list.nth(v, 0) <= list.nth(v, 1) and list.nth(v, 2) <= list.nth(v, 3)
+    then
+      v
+    else
+      log(label="duck", "ignoring #{ramp_path} (#{raw}): keeping the default ramp")
+      dflt
+    end
+  else
+    dflt
+  end
+end
+duck_ramp_voice = read_duck_ramp("voice", [0.8, 0.8, 0.8, 0.8])
+duck_ramp_intro = read_duck_ramp("intro", [0.8, 0.8, 0.8, 0.8])
+duck_ramp_sfx = read_duck_ramp("sfx", [0.3, 0.3, 0.3, 0.3])
+
+# duck-ramps.json: the ramps this mixer loaded, which the controller budgets
+# the lead-in and the duck's release by (broadcast/duck-ramp-status.ts), since a
+# saved change waits for a restart. Written once, at startup.
+def duck_ramp_record(r) =
+  {downMin = list.nth(r, 0), downMax = list.nth(r, 1), upMin = list.nth(r, 2), upMax = list.nth(r, 3)}
+end
+try
+  file.write(
+    data=json.stringify(compact=true, {
+      voice = duck_ramp_record(duck_ramp_voice),
+      intro = duck_ramp_record(duck_ramp_intro),
+      sfx = duck_ramp_record(duck_ramp_sfx)
+    }),
+    atomic=true,
+    temp_dir=duck_ramps_tmp_dir,
+    "#{state_dir}/duck-ramps.json"
+  )
+catch err do
+  log(label="duck", "duck-ramps.json write failed (#{err})")
 end
 
 if file.exists("#{state_dir}/liquidsoap_archive_enabled.txt") then
@@ -2098,17 +2152,38 @@ intro_queue.on_metadata(synchronous=false, voice_marker("intro", intro_tmp_dir))
 # mic-chained: the audio is already produced.
 sfx_queue = request.queue(id="sfx_queue")
 
-# Silent lead-in clip, pushed immediately before each speech file: smooth_add
+# Silent lead-in clip, pushed immediately before each speech file: smooth_duck
 # ducks over the silence so the dip completes BEFORE the DJ's first word.
 # request.queue plays the two pushes gaplessly. A clip annotated
 # subwave_no_leadin="true" queues behind one already playing (an exchange
 # continuation line): the duck is down, so its lead-in would be dead air.
-leadin_path = "/sounds/leadin.wav"
-has_leadin = file.exists(leadin_path)
-if has_leadin then
-  log("Voice lead-in enabled: #{leadin_path}")
+#
+# Each voice layer's lead-in lasts its longest down ramp (downMax): smooth_duck
+# also fades the clip itself in over the ramp, so a shorter lead-in would ramp
+# the first word. The controller writes one per length into leadin/ and never
+# rewrites one (duck-ramp-policy.ts leadinFileName), so the file picked here
+# stays the right length until the next restart. Missing, the shipped 0.8 s
+# clip airs, which is exactly right at the default ramp.
+def leadin_for(layer, ramp) =
+  ms = int_of_float(floor(list.nth(ramp, 1) * 1000. + 0.5))
+  own = "#{state_dir}/leadin/leadin-#{ms}ms.wav"
+  if file.exists(own) then
+    own
+  else
+    if ms != 800 then
+      log(label="duck", "No #{own}: the #{layer} layer airs the shipped 0.8 s lead-in, shorter than its #{ms} ms down ramp")
+    end
+    "/sounds/leadin.wav"
+  end
+end
+voice_leadin_path = leadin_for("voice", duck_ramp_voice)
+intro_leadin_path = leadin_for("intro", duck_ramp_intro)
+has_voice_leadin = file.exists(voice_leadin_path)
+has_intro_leadin = file.exists(intro_leadin_path)
+if has_voice_leadin then
+  log("Voice lead-in enabled: #{voice_leadin_path} (say), #{intro_leadin_path} (intro)")
 else
-  log("No #{leadin_path} — DJ voice will duck without a pre-roll lead-in")
+  log("No #{voice_leadin_path} — DJ voice will duck without a pre-roll lead-in")
 end
 
 def poll_voice() =
@@ -2117,8 +2192,8 @@ def poll_voice() =
     file.remove("#{state_dir}/say.txt")
     if contents != "" then
       log("DJ says: #{contents}")
-      if has_leadin and not string.contains(substring='subwave_no_leadin="true"', contents) then
-        ignore(voice_queue.push(request.create(leadin_path)))
+      if has_voice_leadin and not string.contains(substring='subwave_no_leadin="true"', contents) then
+        ignore(voice_queue.push(request.create(voice_leadin_path)))
       end
       ignore(voice_queue.push(request.create(contents)))
       write_pause_voice_accepted(contents)
@@ -2159,8 +2234,8 @@ def poll_intro() =
         string.replace(pattern="^annotate:", fun(_) -> "annotate:subwave_overlay_epoch=\"#{epoch}\",", contents)
       else contents end
       log("DJ talk-over: #{contents}")
-      if has_leadin and not string.contains(substring='subwave_no_leadin="true"', contents) then
-        leadin = if overlay then "annotate:subwave_jingle_overlay=\"true\",subwave_overlay_epoch=\"#{epoch}\",subwave_overlay_track_at=\"#{song_stamp}\":#{leadin_path}" else leadin_path end
+      if has_intro_leadin and not string.contains(substring='subwave_no_leadin="true"', contents) then
+        leadin = if overlay then "annotate:subwave_jingle_overlay=\"true\",subwave_overlay_epoch=\"#{epoch}\",subwave_overlay_track_at=\"#{song_stamp}\":#{intro_leadin_path}" else intro_leadin_path end
         ignore(intro_queue.push(request.create(leadin)))
       end
       ignore(intro_queue.push(request.create(contents)))
@@ -2313,14 +2388,73 @@ music_bus =
 # even with voice_queue empty (git f38a9af). smooth_add cares only whether the
 # channel has signal.
 #
-# `duration` is the fade into and out of the duck. It can be gentle on the voice
-# layers because each gets a silent lead-in clip pushed ahead of the speech, so
-# the dip completes BEFORE the DJ's first word.
+# smooth_duck is the stdlib's smooth_add (Liquidsoap 2.4.6, libs/extra/audio.liq)
+# copied line for line, with one change: the single `duration` becomes a ramp
+# per direction, [downMin, downMax] when a clip starts and [upMin, upMax] when
+# it ends, each drawn per transition with random.float. A range whose min
+# equals its max draws nothing and is the stdlib function exactly, which is
+# what the defaults are. The draw happens inside the fallback's transition
+# callbacks, once per clip, so the per-frame work is the stdlib's: one
+# fade.scale per side. Like smooth_add, the special source itself fades in to
+# 1 - p over the down ramp, which is why each voice layer's lead-in lasts its
+# downMax.
+def smooth_duck(~ramp, ~p, ~normal, ~special) =
+  p = getter.function(p)
+  last_p = ref(p())
+
+  def draw(lo, hi) =
+    if hi > lo then random.float(min=lo, max=hi) else lo end
+  end
+
+  def c(fn, s) =
+    def v() =
+      fn = fn()
+      fn()
+    end
+
+    fade.scale(v, s)
+  end
+
+  special_volume = ref(fun () -> 0.)
+  special = c(special_volume, special)
+  normal_volume = ref(fun () -> 1.)
+  normal = c(normal_volume, normal)
+
+  def to_special(_, special) =
+    last_p := p()
+    q = 1. - last_p()
+    d = draw(list.nth(ramp, 0), list.nth(ramp, 1))
+    normal_volume := mkfade(start=1., stop=last_p(), duration=d, normal)
+    special_volume := mkfade(stop=q, duration=d, special)
+    special
+  end
+
+  def to_blank(special, b) =
+    d = draw(list.nth(ramp, 2), list.nth(ramp, 3))
+    normal_volume := mkfade(start=last_p(), duration=d, normal)
+    special_volume := mkfade(start=1. - last_p(), duration=d, special)
+    sequence([special, b])
+  end
+
+  special =
+    fallback(
+      track_sensitive=false,
+      transitions=[to_special, to_blank],
+      [special, blank()]
+    )
+
+  add(normalize=false, [normal, special])
+end
+
+# The ramps are the fade into and out of the duck (duck_ramp_*, read once at
+# startup above). They can be gentle on the voice layers because each gets a
+# silent lead-in as long as its longest down ramp, pushed ahead of the speech,
+# so the dip completes BEFORE the DJ's first word.
 #
 # Both depths come from liquidsoap_duck_*.txt, read once at startup above, so a
 # change needs a mixer restart.
-ducked = smooth_add(
-  duration=0.8,
+ducked = smooth_duck(
+  ramp=duck_ramp_voice,
   # heavy duck: 0.22 (the default) drops the music to ~-13 dB under solo voice
   p={duck_voice()},
   normal=music_bus,
@@ -2328,8 +2462,8 @@ ducked = smooth_add(
 )
 
 # Light duck on top for talk-over links — leaves the song audible underneath.
-radio = smooth_add(
-  duration=0.8,
+radio = smooth_duck(
+  ramp=duck_ramp_intro,
   p={duck_intro()},   # 0.30 default, ~-10 dB
   normal=ducked,
   special=intro
@@ -2340,8 +2474,8 @@ radio = smooth_add(
 # buried stingers under the mic_chain-boosted DJ (#1689); the bus limiter below
 # catches the sum's peaks.
 sfx_bed = amplify(1.0, sfx_queue)
-radio = smooth_add(
-  duration=0.3,     # snappier than voice — stingers are short, no lead-in clip
+radio = smooth_duck(
+  ramp=duck_ramp_sfx,  # 0.3 default, snappier than voice: stingers are short, no lead-in clip
   p={0.7},          # ~-3 dB
   normal=radio,
   special=sfx_bed

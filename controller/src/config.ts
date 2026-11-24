@@ -241,6 +241,12 @@ export const config = {
     // {enabled, onAir: processed|dry, delayMs, since, at}. Read via
     // broadcast/processor-status.ts.
     processorStatusFile: `${STATE_DIR}/processor-status.json`,
+    // The duck ramps radio.liq loaded at startup ({voice, intro, sfx}, each
+    // {downMin, downMax, upMin, upMax} seconds). What the controller budgets
+    // the lead-in and the duck's release by, since a saved change waits for a
+    // mixer restart. Absent (an older broadcast image) reads as the defaults.
+    // Read via broadcast/duck-ramp-status.ts.
+    duckRampsFile: `${STATE_DIR}/duck-ramps.json`,
   },
   session: {
     // The live DJ session (chat-history JSON); archived into `dir` on roll.

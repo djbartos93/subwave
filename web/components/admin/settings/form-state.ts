@@ -1,6 +1,6 @@
 import { normalizeStationLocale } from '../../../lib/format';
 import { normalizeGeminiSafety, normalizeReasoningEffort, SHORTLIST_PASSES_DEFAULT, TRANSITION_EFFECTS, ttsVoiceLevellingSchema, type TransitionEffect } from '../../../lib/schemas.generated';
-import type { FormState, SettingsData, LlmHeaderRow } from './shared';
+import type { FormState, SettingsData, LlmHeaderRow, DuckRampLayerForm, DuckRampLayerValues } from './shared';
 import { bodyParamRows } from './llmBodyParams';
 
 // The single client-side copy, read by both form hydration and the dirty-check.
@@ -47,6 +47,12 @@ export function settingsForm(v: NonNullable<SettingsData['values']>): FormState 
       returnPort: String(v.processor?.returnPort ?? 9001),
       delayMs: String(v.processor?.delayMs ?? 0),
       failoverMs: String(v.processor?.failoverMs ?? 2000),
+    },
+    // Absent (an older controller) reads as the shipped fixed ramps.
+    duckRamp: {
+      voice: rampForm(v.duckRamp?.voice, 0.8),
+      intro: rampForm(v.duckRamp?.intro, 0.8),
+      sfx: rampForm(v.duckRamp?.sfx, 0.3),
     },
     maxTrackLengthMode: v.maxTrackLengthMode === 'exclude' ? 'exclude' : 'cut',
     maxTrackSeconds: String(v.maxTrackSeconds ?? 0),
@@ -373,5 +379,14 @@ export function settingsForm(v: NonNullable<SettingsData['values']>): FormState 
       enabled: v.lyrics?.enabled === true,
       lrclib: v.lyrics?.lrclib === true,
     },
+  };
+}
+
+function rampForm(r: DuckRampLayerValues | undefined, dflt: number): DuckRampLayerForm {
+  return {
+    downMin: String(r?.downMin ?? dflt),
+    downMax: String(r?.downMax ?? dflt),
+    upMin: String(r?.upMin ?? dflt),
+    upMax: String(r?.upMax ?? dflt),
   };
 }

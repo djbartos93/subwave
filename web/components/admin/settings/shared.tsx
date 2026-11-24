@@ -367,6 +367,24 @@ export interface SilenceTrimForm {
 // settings.ducking — the two smooth_add depths radio.liq reads at mixer
 // startup. Strings like every other number box: a blank input must reach
 // saveBlock as a field error, not as 0 (which is a full mute under the DJ).
+// settings.duckRamp — how long each duck layer takes to pull the music down
+// and bring it back up, a range per direction in seconds. Strings for the same
+// reason as DuckingForm.
+export type DuckRampLayerKey = 'voice' | 'intro' | 'sfx';
+export interface DuckRampLayerForm {
+  downMin: string;
+  downMax: string;
+  upMin: string;
+  upMax: string;
+}
+export type DuckRampForm = Record<DuckRampLayerKey, DuckRampLayerForm>;
+export interface DuckRampLayerValues {
+  downMin?: number;
+  downMax?: number;
+  upMin?: number;
+  upMax?: number;
+}
+
 export interface DuckingForm {
   voice: string;
   intro: string;
@@ -430,6 +448,7 @@ export interface FormState {
   crossfadeDuration: string;
   ducking: DuckingForm;
   processor: ProcessorForm;
+  duckRamp: DuckRampForm;
   maxTrackSeconds: string;
   maxTrackLengthMode: 'cut' | 'exclude';
   /** Station default for the show-boundary fade (#1574). A show's own
@@ -485,6 +504,7 @@ export interface SettingsData {
     crossfadeDuration?: number;
     ducking?: { voice?: number; intro?: number };
     processor?: { enabled?: boolean; host?: string; sendPort?: number; returnPort?: number; delayMs?: number; failoverMs?: number };
+    duckRamp?: Partial<Record<DuckRampLayerKey, DuckRampLayerValues>>;
     maxTrackSeconds?: number;
     maxTrackLengthMode?: 'cut' | 'exclude';
     minTrackSeconds?: number;

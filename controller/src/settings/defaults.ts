@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { ARTIST_VARIETY_WINDOW } from '../broadcast/dj-agent/artist-guard.js';
 // Pure, importing only schemas/settings.ts.
 import { PROCESSOR_DEFAULTS } from '../broadcast/processor-policy.js';
+import { DUCK_RAMP_DEFAULTS } from '../broadcast/duck-ramp-policy.js';
 import {
   BEDS_CROSS_SEC_BOUNDS,
   BEDS_TAIL_SEC_BOUNDS,
@@ -71,6 +72,12 @@ export const DEFAULTS = {
   // builds no processor stage, so an upgrade airs exactly what it did. Read
   // once at mixer startup out of liquidsoap_processor_*.txt.
   processor: { ...PROCESSOR_DEFAULTS },
+  // How long each duck layer takes to pull the music down and bring it back up,
+  // as a range per direction that the mixer draws inside for every clip
+  // (broadcast/duck-ramp-policy.ts). The defaults are the durations radio.liq
+  // shipped (0.8 s on both voice layers, 0.3 s on sfx), fixed. Read once at
+  // mixer startup out of liquidsoap_duck_ramp_<layer>.txt.
+  duckRamp: structuredClone(DUCK_RAMP_DEFAULTS),
   // Station-wide maximum on autonomously-picked track length; 0 = no cap (#447). A
   // show's own maxTrackSeconds overrides it (0 there = unlimited). Listener
   // requests always bypass it.

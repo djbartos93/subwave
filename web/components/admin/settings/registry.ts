@@ -152,7 +152,7 @@ export const SECTIONS = [
     // transition effects stay here by path, or editing them alone never shows
     // this section's save bar.
     formKeys: [
-      'crossfadeDuration', 'ducking', 'processor', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'stream', 'loudness',
+      'crossfadeDuration', 'ducking', 'duckRamp', 'processor', 'maxTrackSeconds', 'maxTrackLengthMode', 'fadeAtShowEnd', 'silenceTrim', 'stream', 'loudness',
       'transitions.equalPowerCrossfade', 'transitions.fadeAudibleEnd', 'transitions.fadeAudibleEndDb',
       'transitions.tailFromCurve', 'transitions.effects',
     ],
@@ -185,6 +185,7 @@ export const RESTART_PATHS: readonly string[] = [
   'processor.returnPort',
   'processor.delayMs',
   'processor.failoverMs',
+  'duckRamp',
   'archive.enabled',
   'archive.bitrate',
   'stream.opusEnabled',
@@ -385,6 +386,7 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
   { label: 'Send port / return port', section: 'broadcast', card: 'External processor', keywords: 'processor srt udp firewall restart' },
   { label: 'Processing delay', section: 'broadcast', card: 'External processor', keywords: 'processor latency ms listener lead sync lyrics captions restart' },
   { label: 'Fall back to the dry mix after', section: 'broadcast', card: 'External processor', keywords: 'processor failover fallback dropout silence hold flapping swap restart' },
+  { label: 'Duck timing', section: 'broadcast', card: 'Duck timing', keywords: 'ducking fade fader ramp attack release speed duration random range smooth_duck restart' },
   { label: 'Pair-aware transitions', section: 'stems', card: 'Stem transitions', keywords: 'pair drain successor crossfade' },
   { label: 'Stem cache', section: 'stems', card: 'Stem transitions', keywords: 'demucs drums bass vocals disk' },
   { label: 'Stem cache budget', section: 'stems', card: 'Stem transitions', keywords: 'gb evict oldest' },

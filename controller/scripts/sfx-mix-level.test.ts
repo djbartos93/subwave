@@ -34,12 +34,13 @@ test('no 0.7 pre-scale on the sfx_queue survives', () => {
   );
 });
 
-test('the SFX smooth_add keeps its light p={0.7} duck', () => {
-  // Scope to the one smooth_add whose special is sfx_bed, so edits to the
-  // voice/intro layers or the dissolve wash cannot trip this.
-  const calls = [...liq.matchAll(/smooth_add\(([^)]*)\)/g)].map((m) => m[1]);
+test('the SFX duck keeps its light p={0.7} duck', () => {
+  // Scope to the one duck layer whose special is sfx_bed, so edits to the
+  // voice/intro layers or the dissolve wash cannot trip this. The layers are
+  // smooth_duck, radio.liq's copy of smooth_add with per-direction ramps.
+  const calls = [...liq.matchAll(/smooth_(?:add|duck)\(([^)]*)\)/g)].map((m) => m[1]);
   const sfx = calls.filter((args) => /special\s*=\s*sfx_bed\b/.test(args));
-  assert.equal(sfx.length, 1, 'exactly one smooth_add mixes sfx_bed');
+  assert.equal(sfx.length, 1, 'exactly one duck layer mixes sfx_bed');
   assert.match(sfx[0], /\bp\s*=\s*\{\s*0\.7\s*\}/);
   assert.match(sfx[0], /\bnormal\s*=\s*radio\b/);
 });

@@ -3907,6 +3907,35 @@ export const processorPatchSchema = settingsBlockOf({
   ),
 });
 
+// Duck ramp timing (duckRamp.*): how long each duck layer takes to pull the
+// music down when a clip starts and to bring it back up when the clip ends, in
+// seconds. Each direction is a range, and the mixer draws a fresh value inside
+// it for every clip, so a min equal to its max is a fixed time. Read once at
+// mixer startup out of liquidsoap_duck_ramp_<layer>.txt; radio.liq re-checks
+// the same bounds. Whole-layer rules (min <= max) are broadcast/duck-ramp-policy.ts.
+export const DUCK_RAMP_SEC_BOUNDS: SettingsNumericBound = { min: 0.1, max: 5 };
+export const DUCK_RAMP_LAYERS = ['voice', 'intro', 'sfx'] as const;
+export const DUCK_RAMP_FIELDS = ['downMin', 'downMax', 'upMin', 'upMax'] as const;
+
+function duckRampLayerSchema(layer: (typeof DUCK_RAMP_LAYERS)[number]) {
+  const secs = (f: (typeof DUCK_RAMP_FIELDS)[number]) => settingsFloatLike(
+    DUCK_RAMP_SEC_BOUNDS,
+    `duckRamp.${layer}.${f} must be a number of seconds in [${DUCK_RAMP_SEC_BOUNDS.min}, ${DUCK_RAMP_SEC_BOUNDS.max}]`,
+  );
+  return settingsBlockOf({
+    downMin: secs('downMin'),
+    downMax: secs('downMax'),
+    upMin: secs('upMin'),
+    upMax: secs('upMax'),
+  });
+}
+
+export const duckRampPatchSchema = settingsBlockOf({
+  voice: duckRampLayerSchema('voice'),
+  intro: duckRampLayerSchema('intro'),
+  sfx: duckRampLayerSchema('sfx'),
+});
+
 // Show handover timing (#1576). One field today, a block because the ordering
 // half of the handover is a placement rule with no dial — a second timing knob
 // belongs beside this one rather than as another flat top-level key.
